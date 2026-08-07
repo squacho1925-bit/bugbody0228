@@ -1,0 +1,1588 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>悠活手調工作室 ｜ 記帳與薪資系統</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@500;700;900&family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#F6F3EC;
+  --surface:#FFFFFF;
+  --surface-alt:#EFEADD;
+  --ink:#243029;
+  --ink-soft:#647268;
+  --ink-faint:#9AA69C;
+  --primary:#38574A;
+  --primary-dark:#233A31;
+  --primary-soft:#DCE7DF;
+  --accent:#BD8A3F;
+  --accent-soft:#F1E3C7;
+  --accent-dark:#8F672B;
+  --teal:#6E948A;
+  --danger:#B1544A;
+  --danger-soft:#F5DEDA;
+  --success:#3E7A55;
+  --success-soft:#DDEEE2;
+  --border:#E3DCC9;
+  --shadow-sm:0 1px 3px rgba(35,58,49,.08);
+  --shadow-md:0 8px 24px rgba(35,58,49,.14);
+  --radius:12px;
+  --radius-sm:8px;
+  --font-display:'Noto Serif TC', serif;
+  --font-body:'Noto Sans TC', sans-serif;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  font-family:var(--font-body);
+  background:var(--bg);
+  color:var(--ink);
+  -webkit-font-smoothing:antialiased;
+}
+button, input, select, textarea{font-family:inherit; font-size:14px;}
+h1,h2,h3,h4{font-family:var(--font-display); margin:0; color:var(--primary-dark);}
+a{color:inherit;}
+::selection{background:var(--accent-soft);}
+
+/* ---------- layout shell ---------- */
+#shell{display:flex; min-height:100vh;}
+#sidebar{
+  width:236px; flex-shrink:0; background:var(--primary-dark); color:#EFE9DA;
+  display:flex; flex-direction:column; position:sticky; top:0; height:100vh; overflow-y:auto;
+}
+.brand{padding:22px 18px 20px; border-bottom:1px solid rgba(239,233,218,.12); text-align:center;}
+.brand-logo-card{background:#F1EEE6; border-radius:14px; padding:12px 10px 10px; margin:0 auto 12px; box-shadow:0 4px 14px rgba(0,0,0,.18);}
+.brand-logo-img{width:100%; height:auto; display:block; border-radius:6px;}
+.brand h1{font-size:16px; color:#FBF8F0; line-height:1.35; letter-spacing:.02em; font-weight:600;}
+.brand p{margin:5px 0 0; font-size:10.5px; color:#8FA096; letter-spacing:.04em;}
+nav.navlist{padding:14px 10px; flex:1;}
+.navlist button{
+  width:100%; display:flex; align-items:center; gap:10px; text-align:left;
+  background:transparent; border:none; color:#D7DDD3; padding:10px 12px; margin-bottom:2px;
+  border-radius:8px; cursor:pointer; font-size:14px; font-weight:500; transition:background .15s, color .15s;
+}
+.navlist button svg{flex-shrink:0; opacity:.85;}
+.navlist button:hover{background:rgba(239,233,218,.08); color:#fff;}
+.navlist button.active{background:var(--accent); color:var(--primary-dark); font-weight:700;}
+.navlist button.active svg{opacity:1;}
+.sidebar-foot{padding:14px 18px 20px; font-size:11px; color:#8FA096; border-top:1px solid rgba(239,233,218,.12);}
+
+#main{flex:1; min-width:0; display:flex; flex-direction:column;}
+#topbar{
+  position:sticky; top:0; z-index:20; background:rgba(246,243,236,.9); backdrop-filter:blur(6px);
+  border-bottom:1px solid var(--border); padding:16px 28px; display:flex; align-items:center; justify-content:space-between; gap:12px;
+}
+#topbar h2{font-size:21px;}
+#topbar .sub{font-size:12.5px; color:var(--ink-soft); margin-top:2px;}
+#content{padding:24px 28px 64px; flex:1;}
+.tab-panel{display:none;}
+.tab-panel.active{display:block; animation:fadein .25s ease;}
+@keyframes fadein{from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:none;}}
+
+/* ---------- generic components ---------- */
+.card{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow-sm);}
+.card-pad{padding:20px 22px;}
+.section-head{display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:14px;}
+.section-head h3{font-size:17px;}
+.section-head .desc{font-size:12.5px; color:var(--ink-soft); margin-top:2px;}
+
+.btn{
+  display:inline-flex; align-items:center; gap:6px; border:1px solid transparent; border-radius:8px;
+  padding:9px 16px; font-size:13.5px; font-weight:600; cursor:pointer; transition:all .15s; white-space:nowrap;
+}
+.btn-primary{background:var(--primary); color:#fff;}
+.btn-primary:hover{background:var(--primary-dark);}
+.btn-accent{background:var(--accent); color:var(--primary-dark);}
+.btn-accent:hover{background:var(--accent-dark); color:#fff;}
+.btn-ghost{background:transparent; border-color:var(--border); color:var(--ink);}
+.btn-ghost:hover{background:var(--surface-alt);}
+.btn-danger{background:var(--danger-soft); color:var(--danger);}
+.btn-danger:hover{background:var(--danger); color:#fff;}
+.btn-sm{padding:6px 10px; font-size:12.5px; border-radius:6px;}
+.btn:disabled{opacity:.5; cursor:not-allowed;}
+.icon-btn{background:transparent; border:1px solid var(--border); border-radius:6px; padding:5px 7px; cursor:pointer; color:var(--ink-soft);}
+.icon-btn:hover{background:var(--surface-alt); color:var(--ink);}
+
+.grid{display:grid; gap:16px;}
+.grid-4{grid-template-columns:repeat(4,1fr);}
+.grid-3{grid-template-columns:repeat(3,1fr);}
+.grid-2{grid-template-columns:repeat(2,1fr);}
+@media (max-width:1080px){.grid-4{grid-template-columns:repeat(2,1fr);} .grid-3{grid-template-columns:repeat(2,1fr);}}
+@media (max-width:640px){.grid-4,.grid-3,.grid-2{grid-template-columns:1fr;}}
+
+.stat-card{padding:18px 20px; position:relative; overflow:hidden;}
+.stat-card .label{font-size:12px; color:var(--ink-soft); font-weight:600; letter-spacing:.02em;}
+.stat-card .value{font-family:var(--font-display); font-size:26px; font-weight:700; color:var(--primary-dark); margin-top:6px;}
+.stat-card .hint{font-size:11.5px; color:var(--ink-faint); margin-top:4px;}
+.stat-card .tag{position:absolute; top:14px; right:14px; font-size:10px; padding:3px 8px; border-radius:20px; font-weight:700;}
+.tag-good{background:var(--success-soft); color:var(--success);}
+.tag-warn{background:var(--accent-soft); color:var(--accent-dark);}
+
+table{width:100%; border-collapse:collapse; font-size:13px;}
+thead th{
+  text-align:left; font-size:11.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-soft);
+  border-bottom:1px solid var(--border); padding:9px 10px; background:var(--surface-alt); font-weight:700;
+  position:sticky; top:0;
+}
+thead th:first-child{border-top-left-radius:8px;}
+thead th:last-child{border-top-right-radius:8px;}
+tbody td{padding:10px 10px; border-bottom:1px solid var(--border); color:var(--ink); vertical-align:middle;}
+tbody tr:hover{background:#FBF9F3;}
+tbody tr:last-child td{border-bottom:none;}
+.table-wrap{overflow-x:auto; border:1px solid var(--border); border-radius:var(--radius); background:var(--surface);}
+.table-wrap table{min-width:640px;}
+.empty-row td{text-align:center; color:var(--ink-faint); padding:36px 10px; font-size:13px;}
+.num{text-align:right; font-variant-numeric:tabular-nums;}
+.center{text-align:center;}
+
+.pill{display:inline-block; padding:2px 9px; border-radius:20px; font-size:11.5px; font-weight:700;}
+.pill-A{background:#E4D6F5; color:#6B3FA0;}
+.pill-B{background:#D6E8F5; color:#2E6FA3;}
+.pill-C{background:#FBE6C4; color:#95661A;}
+.pill-D{background:#E4E9DF; color:#54634F;}
+.pill-service{background:var(--primary-soft); color:var(--primary);}
+.pill-good{background:var(--success-soft); color:var(--success);}
+.pill-mute{background:var(--surface-alt); color:var(--ink-soft);}
+
+.field{display:flex; flex-direction:column; gap:5px; margin-bottom:14px;}
+.field label{font-size:12.5px; font-weight:700; color:var(--ink-soft);}
+.field .help{font-size:11px; color:var(--ink-faint); font-weight:400;}
+input[type=text], input[type=number], input[type=date], input[type=month], input[type=tel], input[type=password], select, textarea{
+  border:1px solid var(--border); border-radius:8px; padding:9px 11px; background:#fff; color:var(--ink); width:100%;
+}
+input:focus, select:focus, textarea:focus, button:focus-visible{outline:2px solid var(--accent); outline-offset:1px;}
+textarea{resize:vertical; min-height:60px;}
+.form-row{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
+@media (max-width:560px){.form-row{grid-template-columns:1fr;}}
+.check-row{display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ink-soft);}
+.check-row input{width:auto;}
+
+.toolbar{display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end; margin-bottom:16px;}
+.toolbar .field{margin-bottom:0; min-width:140px;}
+.toolbar .field.grow{flex:1; min-width:180px;}
+
+.search-input{position:relative;}
+.badge-count{background:var(--accent-soft); color:var(--accent-dark); border-radius:20px; padding:2px 9px; font-size:11.5px; font-weight:700;}
+
+/* modal */
+#modalOverlay{
+  position:fixed; inset:0; background:rgba(35,50,42,.45); display:none; align-items:flex-start; justify-content:center;
+  padding:5vh 16px; z-index:100; overflow-y:auto;
+}
+#modalOverlay.open{display:flex;}
+.modal-box{background:#fff; border-radius:14px; width:100%; max-width:560px; box-shadow:var(--shadow-md); animation:modalin .18s ease;}
+.modal-box.wide{max-width:760px;}
+@keyframes modalin{from{opacity:0; transform:translateY(-8px) scale(.98);} to{opacity:1; transform:none;}}
+.modal-head{padding:18px 22px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between;}
+.modal-head h3{font-size:17px;}
+.modal-body{padding:20px 22px; max-height:66vh; overflow-y:auto;}
+.modal-foot{padding:16px 22px; border-top:1px solid var(--border); display:flex; justify-content:flex-end; gap:10px;}
+.modal-close{background:none; border:none; font-size:20px; cursor:pointer; color:var(--ink-soft); line-height:1;}
+.modal-close:hover{color:var(--ink);}
+
+/* toast */
+#toastStack{position:fixed; top:18px; right:18px; z-index:200; display:flex; flex-direction:column; gap:8px; align-items:flex-end;}
+.toast{
+  background:var(--primary-dark); color:#fff; padding:11px 16px; border-radius:9px; font-size:13px; box-shadow:var(--shadow-md);
+  display:flex; align-items:center; gap:8px; max-width:320px; animation:toastin .2s ease;
+}
+.toast.success{background:var(--success);}
+.toast.error{background:var(--danger);}
+.toast.info{background:var(--primary);}
+@keyframes toastin{from{opacity:0; transform:translateX(12px);} to{opacity:1; transform:none;}}
+
+.divider{height:1px; background:var(--border); margin:18px 0;}
+.note-box{background:var(--accent-soft); border:1px solid #E6CE9A; color:var(--accent-dark); padding:12px 14px; border-radius:9px; font-size:12.5px; line-height:1.6;}
+.info-box{background:var(--primary-soft); border:1px solid #C6D8CC; color:var(--primary-dark); padding:12px 14px; border-radius:9px; font-size:12.5px; line-height:1.6;}
+.small-btn-row{display:flex; gap:8px; flex-wrap:wrap;}
+.mono{font-variant-numeric:tabular-nums;}
+.muted{color:var(--ink-soft);}
+.faint{color:var(--ink-faint); font-size:11.5px;}
+.hidden{display:none !important;}
+.mt8{margin-top:8px;} .mt12{margin-top:12px;} .mt16{margin-top:16px;} .mt20{margin-top:20px;}
+.mb8{margin-bottom:8px;}
+.flex{display:flex;} .flex-wrap{flex-wrap:wrap;} .gap8{gap:8px;} .gap10{gap:10px;} .items-center{align-items:center;} .justify-between{justify-content:space-between;}
+.w-100{width:100%;}
+.pagination{display:flex; align-items:center; justify-content:center; gap:10px; padding:14px 0 4px; font-size:13px; color:var(--ink-soft);}
+
+.chart-wrap{padding:6px 4px 0;}
+.chart-legend{display:flex; gap:16px; font-size:11.5px; color:var(--ink-soft); margin-top:6px;}
+.legend-dot{width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:5px;}
+
+@media (max-width:900px){
+  #sidebar{position:fixed; left:-236px; z-index:90; transition:left .2s;}
+  #sidebar.open{left:0;}
+  #main{width:100%;}
+  #topbar{padding:14px 16px;}
+  #content{padding:16px 16px 48px;}
+  #menuToggle{display:inline-flex !important;}
+}
+#menuToggle{display:none; background:var(--primary); color:#fff; border:none; border-radius:8px; padding:8px 10px; cursor:pointer;}
+</style>
+</head>
+<body>
+
+<div id="shell">
+  <aside id="sidebar">
+    <div class="brand">
+      <div class="brand-logo-card"><img class="brand-logo-img" src="data:image/jpeg;base64,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" alt="悠活手調工作室 NORMCORE 標誌"></div>
+      <h1 id="brandName">悠活手調工作室</h1>
+      <p id="brandSub">記帳與薪資試算系統</p>
+    </div>
+    <nav class="navlist" id="navList"></nav>
+    <div class="sidebar-foot">資料僅儲存於本機瀏覽器<br>請定期於「系統設定」備份資料</div>
+  </aside>
+
+  <div id="main">
+    <div id="topbar">
+      <div class="flex items-center gap10">
+        <button id="menuToggle" aria-label="開啟選單">☰</button>
+        <div>
+          <h2 id="pageTitle">儀表板</h2>
+          <div class="sub" id="pageSub">今天也要記得記帳喔</div>
+        </div>
+      </div>
+      <div class="flex gap8" id="topbarActions"></div>
+    </div>
+    <div id="content"></div>
+  </div>
+</div>
+
+<div id="modalOverlay">
+  <div class="modal-box" id="modalBox">
+    <div class="modal-head">
+      <h3 id="modalTitle">標題</h3>
+      <button class="modal-close" id="modalCloseBtn" aria-label="關閉">✕</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-foot" id="modalFoot"></div>
+  </div>
+</div>
+
+<div id="toastStack"></div>
+
+<script>
+(function(){
+"use strict";
+
+/* =======================================================
+   0. 常數與工具
+   ======================================================= */
+const STORAGE_KEY = "yh_studio_bookkeeping_v1";
+const CATEGORIES = ["服務","商品","其他","儲值"];
+const PAYMENTS = ["現金","匯款","LINE Pay","信用卡","儲值金","其他"];
+const CUSTOMER_TYPES = ["一般","選手"];
+const LEVELS = ["A","B","C","D"];
+const MONTH_NAMES = ["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"];
+
+function uid(prefix){ return (prefix||"id") + "_" + Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
+function fmtMoney(n){ n = Math.round(Number(n)||0); return "NT$" + n.toLocaleString("zh-Hant-TW"); }
+function fmtNum(n){ return (Number(n)||0).toLocaleString("zh-Hant-TW"); }
+function todayStr(){ const d = new Date(); return d.toISOString().slice(0,10); }
+function monthKeyOf(dateStr){ return (dateStr||"").slice(0,7); }
+function clamp0(n){ return n < 0 ? 0 : n; }
+function escapeHtml(s){
+  if(s===undefined || s===null) return "";
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+function byId(list, id){ return list.find(x => x.id === id); }
+function deepClone(o){ return JSON.parse(JSON.stringify(o)); }
+
+/* =======================================================
+   1. 預設 / 範例資料
+   ======================================================= */
+function defaultState(){
+  const items = [
+    {id:"it_tiao", category:"服務", name:"調理", price:null, special:"level"},
+    {id:"it_pillow", category:"商品", name:"枕頭", price:3980},
+    {id:"it_tape", category:"商品", name:"貼紮", price:200},
+    {id:"it_lotionS", category:"商品", name:"乳液(小)", price:500},
+    {id:"it_lotionL", category:"商品", name:"乳液(大)", price:1500},
+    {id:"it_teabox", category:"商品", name:"茶包禮盒", price:800},
+    {id:"it_lotionbox", category:"商品", name:"乳液禮盒", price:2200},
+    {id:"it_ballS", category:"商品", name:"小球", price:100},
+    {id:"it_ballL", category:"商品", name:"大球", price:250},
+    {id:"it_dolphin", category:"商品", name:"海豚刀", price:2400},
+    {id:"it_u2", category:"商品", name:"律動機(U2)", price:29800},
+    {id:"it_u3", category:"商品", name:"律動機(U3)", price:39800},
+    {id:"it_agS", category:"商品", name:"銀離子(小)", price:100},
+    {id:"it_agL", category:"商品", name:"銀離子(大)", price:450},
+    {id:"it_agR", category:"商品", name:"銀離子(補充)", price:1000},
+    {id:"it_whale", category:"商品", name:"鯨魚刀", price:2200},
+    {id:"it_tape2", category:"商品", name:"肌貼", price:250},
+    {id:"it_oklotion", category:"商品", name:"OK乳液", price:1800},
+    {id:"it_bed1", category:"商品", name:"標準單人床", price:33600},
+    {id:"it_bed2", category:"商品", name:"加大單人床", price:38400},
+    {id:"it_bed3", category:"商品", name:"標準雙人床", price:48000},
+    {id:"it_bed4", category:"商品", name:"加大雙人床", price:57600},
+    {id:"it_event", category:"其他", name:"活動", price:1000},
+    {id:"it_follow", category:"其他", name:"跟課", price:0},
+    {id:"it_deposit", category:"儲值", name:"儲值", price:0},
+    {id:"it_depositbonus", category:"儲值", name:"儲值(優惠贈送)", price:0},
+  ];
+  const otherRates = {};
+  const rateMap = {it_tape:50,it_lotionS:200,it_lotionL:500,it_ballS:0,it_ballL:0,it_dolphin:150,it_u2:1490,it_u3:1990,
+    it_agS:20,it_agL:150,it_agR:500,it_whale:150,it_tape2:0,it_oklotion:500,it_bed1:2000,it_bed2:2500,it_bed3:3000,
+    it_bed4:4000,it_teabox:100,it_lotionbox:300,it_follow:1000,it_event:0,it_deposit:0,it_depositbonus:0};
+  items.forEach(it => { if(it.id !== "it_pillow" && it.id !== "it_tiao") otherRates[it.id] = rateMap[it.id] || 0; });
+
+  const costs = {};
+  const costMap = {it_dolphin:1500,it_lotionS:200,it_lotionL:800,it_agS:50,it_agL:220,it_agR:300,it_ballS:35,it_ballL:80,
+    it_u2:25330,it_u3:33830,it_whale:1200,it_tape:200,it_pillow:1500,it_tape2:200};
+  items.forEach(it => { costs[it.id] = costMap[it.id] || 0; });
+
+  const therapists = [
+    {id:"th_demo_a", name:"王大明（範例）", level:"A", phone:"", status:"active", joinDate:todayStr(), note:"示範資料，可編輯或刪除"},
+    {id:"th_demo_b", name:"李小華（範例）", level:"B", phone:"", status:"active", joinDate:todayStr(), note:"示範資料，可編輯或刪除"},
+  ];
+
+  const customers = [
+    {id:"cu_demo_1", code:"範例A000", name:"陳小姐（範例）", phone:"0900123456", type:"一般", referrer:"", note:"示範資料，可編輯或刪除"},
+    {id:"cu_demo_2", code:"範例B000", name:"林先生（範例，選手）", phone:"0900654321", type:"選手", referrer:"陳小姐（範例）", note:"示範資料，可編輯或刪除"},
+  ];
+
+  const today = todayStr();
+  const transactions = [
+    {id:uid("tx"), date:today, customerId:"cu_demo_1", customerName:"陳小姐（範例）", therapistId:"th_demo_a", therapistName:"王大明（範例）",
+      category:"服務", itemId:"it_tiao", itemName:"調理", customerType:"一般", qty:1, unitPrice:3000, discount:0, amount:3000, payment:"現金", note:"示範紀錄"},
+    {id:uid("tx"), date:today, customerId:"cu_demo_2", customerName:"林先生（範例，選手）", therapistId:"th_demo_b", therapistName:"李小華（範例）",
+      category:"服務", itemId:"it_tiao", itemName:"調理", customerType:"選手", qty:1, unitPrice:1000, discount:0, amount:1000, payment:"匯款", note:"示範紀錄"},
+    {id:uid("tx"), date:today, customerId:"cu_demo_1", customerName:"陳小姐（範例）", therapistId:"th_demo_a", therapistName:"王大明（範例）",
+      category:"商品", itemId:"it_pillow", itemName:"枕頭", customerType:"", qty:1, unitPrice:3980, discount:0, amount:3980, payment:"現金", note:"示範紀錄"},
+  ];
+
+  return {
+    version:1,
+    meta:{studioName:"悠活手調工作室", tagline:"NORMCORE", updatedAt:new Date().toISOString()},
+    therapists, customers, items,
+    pricing:{ levelFee:{A:3000,B:1500,C:1000,D:600}, athleteFee:1000 },
+    commission:{
+      treatmentTiers:[
+        {id:uid("tt"), min:0, max:40, rate:0.35, bonus:0, label:"0～40 次"},
+        {id:uid("tt"), min:41, max:50, rate:0.45, bonus:0, label:"41～50 次"},
+        {id:uid("tt"), min:51, max:60, rate:0.50, bonus:0, label:"51～60 次"},
+        {id:uid("tt"), min:61, max:75, rate:0.55, bonus:0, label:"61～75 次"},
+        {id:uid("tt"), min:76, max:90, rate:0.60, bonus:0, label:"76～90 次"},
+        {id:uid("tt"), min:91, max:999999, rate:0.60, bonus:1000, label:"91 次以上（另加固定獎金）"},
+      ],
+      pillowTiers:[
+        {id:uid("pt"), min:1, max:4, rate:300, bonus:0, label:"1～4 顆（每顆分潤）"},
+        {id:uid("pt"), min:5, max:9, rate:500, bonus:0, label:"5～9 顆（每顆分潤）"},
+        {id:uid("pt"), min:10, max:999999, rate:500, bonus:500, label:"10 顆以上（每顆分潤＋額外獎勵）"},
+      ],
+      otherRates
+    },
+    costs,
+    transactions,
+    settlements:{}
+  };
+}
+
+let state = loadState();
+
+function loadState(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(!raw) return defaultState();
+    const parsed = JSON.parse(raw);
+    if(!parsed || !parsed.items) return defaultState();
+    if(!parsed.meta) parsed.meta = {studioName:"悠活手調工作室", tagline:"NORMCORE"};
+    if(!parsed.meta.tagline) parsed.meta.tagline = "NORMCORE";
+    return parsed;
+  }catch(e){
+    console.error("讀取本機資料失敗，改用預設範例資料", e);
+    return defaultState();
+  }
+}
+function saveState(){
+  state.meta.updatedAt = new Date().toISOString();
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }catch(e){
+    toast("儲存失敗：瀏覽器儲存空間可能已滿", "error");
+  }
+}
+
+/* =======================================================
+   2. Toast / Modal
+   ======================================================= */
+function toast(msg, type){
+  type = type || "info";
+  const el = document.createElement("div");
+  el.className = "toast " + type;
+  el.textContent = msg;
+  document.getElementById("toastStack").appendChild(el);
+  setTimeout(() => { el.style.transition = "opacity .3s"; el.style.opacity = "0"; setTimeout(()=>el.remove(), 300); }, 2800);
+}
+
+let modalOnClose = null;
+function openModal({title, bodyHTML, footHTML, wide, onOpen, onClose}){
+  document.getElementById("modalTitle").textContent = title || "";
+  document.getElementById("modalBody").innerHTML = bodyHTML || "";
+  document.getElementById("modalFoot").innerHTML = footHTML || "";
+  document.getElementById("modalBox").classList.toggle("wide", !!wide);
+  document.getElementById("modalOverlay").classList.add("open");
+  modalOnClose = onClose || null;
+  if(onOpen) onOpen();
+}
+function closeModal(){
+  document.getElementById("modalOverlay").classList.remove("open");
+  document.getElementById("modalBody").innerHTML = "";
+  document.getElementById("modalFoot").innerHTML = "";
+  if(modalOnClose) { try{ modalOnClose(); }catch(e){} }
+  modalOnClose = null;
+}
+document.getElementById("modalCloseBtn").addEventListener("click", closeModal);
+document.getElementById("modalOverlay").addEventListener("click", (e)=>{ if(e.target.id === "modalOverlay") closeModal(); });
+document.addEventListener("keydown", (e)=>{ if(e.key === "Escape") closeModal(); });
+
+function confirmModal({title, message, confirmText, danger, onConfirm}){
+  openModal({
+    title: title || "請確認",
+    bodyHTML: `<p style="line-height:1.7; color:var(--ink)">${escapeHtml(message||"")}</p>`,
+    footHTML: `
+      <button class="btn btn-ghost" data-close>取消</button>
+      <button class="btn ${danger?'btn-danger':'btn-primary'}" id="confirmYesBtn">${escapeHtml(confirmText||"確認")}</button>
+    `,
+  });
+  document.getElementById("confirmYesBtn").addEventListener("click", ()=>{ closeModal(); onConfirm && onConfirm(); });
+  document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click", closeModal));
+}
+
+/* =======================================================
+   3. 圖示
+   ======================================================= */
+function icon(name){
+  const p = {
+    dashboard:'<path d="M3 3h7v7H3V3Zm11 0h7v4h-7V3ZM3 13h7v8H3v-8Zm11-3h7v11h-7V10Z"/>',
+    list:'<path d="M4 6h16M4 12h16M4 18h11"/>',
+    users:'<path d="M16 11a4 4 0 1 0-4-4"/><path d="M2 21v-1a6 6 0 0 1 6-6h1a6 6 0 0 1 6 6v1"/><path d="M17 11a4 4 0 0 1 4 4v1h-3"/>',
+    badge:'<circle cx="12" cy="8" r="4"/><path d="M6 21l2-6h8l2 6"/>',
+    tag:'<path d="M3 11V3h8l10 10-8 8L3 11Z"/><circle cx="7.5" cy="7.5" r="1"/>',
+    percent:'<line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2"/><circle cx="17.5" cy="17.5" r="2"/>',
+    calendar:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+    database:'<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
+    plus:'<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+    menu:'<line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/>',
+  }[name] || "";
+  return `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
+}
+
+/* =======================================================
+   4. 導覽 / 分頁切換
+   ======================================================= */
+const TABS = [
+  {id:"dashboard", label:"儀表板", icon:"dashboard"},
+  {id:"transactions", label:"消費紀錄", icon:"list"},
+  {id:"customers", label:"客戶管理", icon:"users"},
+  {id:"therapists", label:"調理師管理", icon:"badge"},
+  {id:"items", label:"項目與價目", icon:"tag"},
+  {id:"commission", label:"分潤規則", icon:"percent"},
+  {id:"settlement", label:"月結算薪資", icon:"calendar"},
+  {id:"backup", label:"系統設定／備份", icon:"database"},
+];
+let activeTab = "dashboard";
+
+function renderNav(){
+  const nav = document.getElementById("navList");
+  nav.innerHTML = TABS.map(t => `
+    <button data-nav="${t.id}" class="${t.id===activeTab?'active':''}">${icon(t.icon)}<span>${t.label}</span></button>
+  `).join("");
+  nav.querySelectorAll("[data-nav]").forEach(b=>{
+    b.addEventListener("click", ()=>{ switchTab(b.dataset.nav); document.getElementById("sidebar").classList.remove("open"); });
+  });
+}
+const PAGE_META = {
+  dashboard:["儀表板","營運概況一目了然"],
+  transactions:["消費紀錄","記錄每一筆消費，自動依調理師等級試算單價"],
+  customers:["客戶管理","顧客資料與儲值餘額"],
+  therapists:["調理師管理","設定調理師等級（決定調理費用）"],
+  items:["項目與價目","服務／商品項目與價格設定"],
+  commission:["分潤規則","調理量、枕頭銷售與其他項目的分潤設定"],
+  settlement:["月結算薪資","依當月業績自動試算各調理師薪資"],
+  backup:["系統設定／備份","工作室名稱、資料備份與還原"],
+};
+function switchTab(id){
+  activeTab = id;
+  renderNav();
+  const [title, sub] = PAGE_META[id];
+  document.getElementById("pageTitle").textContent = title;
+  document.getElementById("pageSub").textContent = sub;
+  document.querySelectorAll(".tab-panel").forEach(p => p.classList.toggle("active", p.id === "panel-"+id));
+  document.getElementById("topbarActions").innerHTML = "";
+  RENDERERS[id] && RENDERERS[id]();
+}
+document.getElementById("menuToggle").addEventListener("click", ()=> document.getElementById("sidebar").classList.toggle("open"));
+
+/* =======================================================
+   5. 計算輔助（定價 / 分潤）
+   ======================================================= */
+function unitPriceFor(itemId, therapistId, customerType){
+  const item = byId(state.items, itemId);
+  if(!item) return 0;
+  if(item.id === "it_tiao"){
+    if(customerType === "選手") return Number(state.pricing.athleteFee)||0;
+    const th = byId(state.therapists, therapistId);
+    const lvl = th ? th.level : "A";
+    return Number(state.pricing.levelFee[lvl])||0;
+  }
+  return Number(item.price)||0;
+}
+function findTier(tiers, n){
+  return tiers.slice().sort((a,b)=>a.min-b.min).find(t => n >= t.min && n <= t.max) || null;
+}
+function monthTransactions(monthKey){
+  return state.transactions.filter(t => monthKeyOf(t.date) === monthKey);
+}
+function computeTherapistMonthStats(therapistId, monthKey){
+  const txs = monthTransactions(monthKey).filter(t => t.therapistId === therapistId);
+  const tiaoTx = txs.filter(t => t.itemId === "it_tiao");
+  const treatmentCount = tiaoTx.reduce((s,t)=>s+(Number(t.qty)||0),0);
+  const treatmentRevenue = tiaoTx.reduce((s,t)=>s+(Number(t.amount)||0),0);
+  const tier = findTier(state.commission.treatmentTiers, treatmentCount);
+  const suggestedRate = tier ? tier.rate : 0;
+  const suggestedTierBonus = tier ? (tier.bonus||0) : 0;
+
+  const pillowTx = txs.filter(t => t.itemId === "it_pillow");
+  const pillowQty = pillowTx.reduce((s,t)=>s+(Number(t.qty)||0),0);
+  const pillowTier = findTier(state.commission.pillowTiers, pillowQty);
+  const suggestedPillowAmount = pillowTier ? (pillowQty * pillowTier.rate + (pillowTier.bonus||0)) : 0;
+
+  const otherTx = txs.filter(t => t.itemId !== "it_tiao" && t.itemId !== "it_pillow");
+  let otherDetail = [];
+  let otherTotal = 0;
+  otherTx.forEach(t=>{
+    const rate = state.commission.otherRates[t.itemId] || 0;
+    const amt = rate * (Number(t.qty)||0);
+    otherTotal += amt;
+    if(amt !== 0){
+      const existing = otherDetail.find(d=>d.itemName===t.itemName);
+      if(existing){ existing.qty += Number(t.qty)||0; existing.amount += amt; }
+      else otherDetail.push({itemName:t.itemName, qty:Number(t.qty)||0, amount:amt});
+    }
+  });
+
+  return {treatmentCount, treatmentRevenue, suggestedRate, suggestedTierBonus, pillowQty, suggestedPillowAmount, otherTotal, otherDetail, tierLabel: tier?tier.label:"—"};
+}
+function getSettlementOverride(monthKey, therapistId){
+  const m = state.settlements[monthKey];
+  return (m && m[therapistId]) ? m[therapistId] : null;
+}
+function computeTherapistSettlement(therapistId, monthKey){
+  const stats = computeTherapistMonthStats(therapistId, monthKey);
+  const ov = getSettlementOverride(monthKey, therapistId);
+  const rate = ov && ov.rate !== undefined && ov.rate !== null ? Number(ov.rate) : stats.suggestedRate;
+  const treatmentPay = stats.treatmentRevenue * rate + stats.suggestedTierBonus;
+  const pillowPay = ov && ov.pillow !== undefined && ov.pillow !== null ? Number(ov.pillow) : stats.suggestedPillowAmount;
+  const teamBonus = ov && ov.teamBonus !== undefined && ov.teamBonus !== null ? Number(ov.teamBonus) : 0;
+  const total = treatmentPay + pillowPay + stats.otherTotal + teamBonus;
+  return {...stats, rate, treatmentPay, pillowPay, teamBonus, total};
+}
+function customerBalance(customerId){
+  let bal = 0;
+  state.transactions.forEach(t=>{
+    if(t.customerId !== customerId) return;
+    if(t.itemId === "it_deposit" || t.itemId === "it_depositbonus") bal += Number(t.amount)||0;
+    if(t.payment === "儲值金") bal -= Number(t.amount)||0;
+  });
+  return bal;
+}
+
+/* =======================================================
+   6. Dashboard
+   ======================================================= */
+function renderDashboard(){
+  const el = document.getElementById("panel-dashboard");
+  const now = new Date();
+  const monthKey = now.toISOString().slice(0,7);
+  const txThisMonth = monthTransactions(monthKey);
+  const revenue = txThisMonth.reduce((s,t)=>s+(Number(t.amount)||0),0);
+  const treatmentCount = txThisMonth.filter(t=>t.itemId==="it_tiao").reduce((s,t)=>s+(Number(t.qty)||0),0);
+  const distinctCustomers = new Set(txThisMonth.map(t=>t.customerId).filter(Boolean)).size;
+  const activeTherapists = state.therapists.filter(t=>t.status==="active");
+  const payroll = activeTherapists.reduce((s,th)=>s+computeTherapistSettlement(th.id, monthKey).total, 0);
+
+  // last 6 months revenue for chart
+  const months = [];
+  for(let i=5;i>=0;i--){
+    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+    const key = d.toISOString().slice(0,7);
+    const rev = monthTransactions(key).reduce((s,t)=>s+(Number(t.amount)||0),0);
+    months.push({key, label: `${d.getMonth()+1}月`, rev});
+  }
+  const maxRev = Math.max(1, ...months.map(m=>m.rev));
+  const barW = 60, gap = 22, chartH = 140;
+  const bars = months.map((m,i)=>{
+    const h = Math.round((m.rev/maxRev) * (chartH-24));
+    const x = i*(barW+gap)+10;
+    const y = chartH - h;
+    return `<rect x="${x}" y="${y}" width="${barW}" height="${h}" rx="6" fill="${i===5?'var(--accent)':'var(--primary-soft)'}"></rect>
+      <text x="${x+barW/2}" y="${chartH+18}" text-anchor="middle" font-size="11" fill="var(--ink-soft)">${m.label}</text>
+      <text x="${x+barW/2}" y="${y-6}" text-anchor="middle" font-size="10.5" fill="var(--ink-soft)">${m.rev>0? Math.round(m.rev/1000)+'k':''}</text>`;
+  }).join("");
+  const chartW = months.length*(barW+gap)+10;
+
+  const recent = state.transactions.slice().sort((a,b)=> (b.date+b.id).localeCompare(a.date+a.id)).slice(0,8);
+
+  el.innerHTML = `
+    <div class="grid grid-4">
+      <div class="card stat-card"><span class="tag tag-good">本月</span><div class="label">本月營收</div><div class="value">${fmtMoney(revenue)}</div><div class="hint">共 ${txThisMonth.length} 筆消費紀錄</div></div>
+      <div class="card stat-card"><div class="label">本月調理人次</div><div class="value">${fmtNum(treatmentCount)}</div><div class="hint">來自「調理」項目加總</div></div>
+      <div class="card stat-card"><div class="label">本月來客數</div><div class="value">${fmtNum(distinctCustomers)}</div><div class="hint">不重複客戶數</div></div>
+      <div class="card stat-card"><span class="tag tag-warn">試算</span><div class="label">本月薪資試算合計</div><div class="value">${fmtMoney(payroll)}</div><div class="hint">尚未於「月結算」頁面儲存前為預估值</div></div>
+    </div>
+
+    <div class="grid grid-2 mt16" style="align-items:start;">
+      <div class="card card-pad">
+        <div class="section-head"><h3>近 6 個月營收</h3></div>
+        <div class="chart-wrap">
+          <svg width="100%" viewBox="0 0 ${chartW} ${chartH+34}" preserveAspectRatio="xMinYMid meet">${bars}</svg>
+        </div>
+        <div class="chart-legend"><span><span class="legend-dot" style="background:var(--accent)"></span>本月</span><span><span class="legend-dot" style="background:var(--primary-soft)"></span>先前月份</span></div>
+      </div>
+      <div class="card card-pad">
+        <div class="section-head"><h3>快速動作</h3></div>
+        <div class="small-btn-row">
+          <button class="btn btn-primary" data-action="add-transaction">${icon('plus')} 新增一筆消費紀錄</button>
+          <button class="btn btn-ghost" data-nav-jump="settlement">前往月結算薪資</button>
+          <button class="btn btn-ghost" data-nav-jump="customers">新增客戶</button>
+          <button class="btn btn-ghost" data-nav-jump="therapists">管理調理師</button>
+        </div>
+        <div class="divider"></div>
+        <div class="info-box">目前共有 <b>${state.therapists.length}</b> 位調理師（在職 ${activeTherapists.length} 位）、<b>${state.customers.length}</b> 位客戶、<b>${state.transactions.length}</b> 筆消費紀錄。</div>
+      </div>
+    </div>
+
+    <div class="card mt16">
+      <div class="card-pad" style="padding-bottom:0;">
+        <div class="section-head"><h3>最新消費紀錄</h3><span class="desc">顯示最近 8 筆</span></div>
+      </div>
+      <div class="table-wrap" style="border:none; border-radius:0;">
+        <table>
+          <thead><tr><th>日期</th><th>客戶</th><th>項目</th><th>調理師</th><th>付款方式</th><th class="num">金額</th></tr></thead>
+          <tbody>
+            ${recent.length? recent.map(t=>`
+              <tr>
+                <td>${escapeHtml(t.date)}</td>
+                <td>${escapeHtml(t.customerName||'—')}</td>
+                <td><span class="pill pill-service">${escapeHtml(t.itemName)}</span></td>
+                <td>${escapeHtml(t.therapistName||'未指定')}</td>
+                <td>${escapeHtml(t.payment||'—')}</td>
+                <td class="num mono">${fmtMoney(t.amount)}</td>
+              </tr>`).join("") : `<tr class="empty-row"><td colspan="6">尚無消費紀錄</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+/* =======================================================
+   7. 消費紀錄
+   ======================================================= */
+let txFilters = {from:"", to:"", therapistId:"", category:"", keyword:""};
+let txPage = 1;
+const TX_PAGE_SIZE = 25;
+
+function renderTransactions(){
+  const el = document.getElementById("panel-transactions");
+  document.getElementById("topbarActions").innerHTML = `<button class="btn btn-primary" data-action="add-transaction">${icon('plus')} 新增消費紀錄</button>`;
+
+  el.innerHTML = `
+    <div class="card card-pad">
+      <div class="toolbar">
+        <div class="field"><label>起始日期</label><input type="date" id="txFrom" value="${txFilters.from}"></div>
+        <div class="field"><label>結束日期</label><input type="date" id="txTo" value="${txFilters.to}"></div>
+        <div class="field"><label>調理師</label>
+          <select id="txTherapist"><option value="">全部</option>${state.therapists.map(t=>`<option value="${t.id}" ${txFilters.therapistId===t.id?'selected':''}>${escapeHtml(t.name)}</option>`).join("")}</select>
+        </div>
+        <div class="field"><label>類別</label>
+          <select id="txCategory"><option value="">全部</option>${CATEGORIES.map(c=>`<option ${txFilters.category===c?'selected':''}>${c}</option>`).join("")}</select>
+        </div>
+        <div class="field grow"><label>搜尋（客戶／項目／備註）</label><input type="text" id="txKeyword" placeholder="輸入關鍵字…" value="${escapeHtml(txFilters.keyword)}"></div>
+        <button class="btn btn-ghost" id="txClearFilter">清除篩選</button>
+        <button class="btn btn-ghost" id="txExportCsv">匯出 CSV</button>
+      </div>
+      <div id="txTableWrap"></div>
+      <div class="pagination" id="txPagination"></div>
+    </div>
+  `;
+
+  ["txFrom","txTo","txTherapist","txCategory","txKeyword"].forEach(id=>{
+    document.getElementById(id).addEventListener("input", applyTxFilters);
+    document.getElementById(id).addEventListener("change", applyTxFilters);
+  });
+  document.getElementById("txClearFilter").addEventListener("click", ()=>{
+    txFilters = {from:"", to:"", therapistId:"", category:"", keyword:""}; txPage=1; renderTransactions();
+  });
+  document.getElementById("txExportCsv").addEventListener("click", exportTransactionsCsv);
+
+  renderTxTable();
+}
+function applyTxFilters(){
+  txFilters.from = document.getElementById("txFrom").value;
+  txFilters.to = document.getElementById("txTo").value;
+  txFilters.therapistId = document.getElementById("txTherapist").value;
+  txFilters.category = document.getElementById("txCategory").value;
+  txFilters.keyword = document.getElementById("txKeyword").value;
+  txPage = 1;
+  renderTxTable();
+}
+function filteredTx(){
+  return state.transactions.filter(t=>{
+    if(txFilters.from && t.date < txFilters.from) return false;
+    if(txFilters.to && t.date > txFilters.to) return false;
+    if(txFilters.therapistId && t.therapistId !== txFilters.therapistId) return false;
+    if(txFilters.category && t.category !== txFilters.category) return false;
+    if(txFilters.keyword){
+      const k = txFilters.keyword.toLowerCase();
+      const hay = [t.customerName,t.itemName,t.note,t.therapistName].join(" ").toLowerCase();
+      if(!hay.includes(k)) return false;
+    }
+    return true;
+  }).sort((a,b)=> (b.date+b.id).localeCompare(a.date+a.id));
+}
+function renderTxTable(){
+  const list = filteredTx();
+  const totalPages = Math.max(1, Math.ceil(list.length/TX_PAGE_SIZE));
+  if(txPage>totalPages) txPage = totalPages;
+  const pageItems = list.slice((txPage-1)*TX_PAGE_SIZE, txPage*TX_PAGE_SIZE);
+  const sumAmount = list.reduce((s,t)=>s+(Number(t.amount)||0),0);
+
+  document.getElementById("txTableWrap").innerHTML = `
+    <div class="table-wrap mt12">
+      <table>
+        <thead><tr><th>日期</th><th>客戶</th><th>類別</th><th>項目</th><th>調理師</th><th class="num">數量</th><th class="num">單價</th><th class="num">折扣</th><th class="num">金額</th><th>付款</th><th>備註</th><th>操作</th></tr></thead>
+        <tbody>
+          ${pageItems.length? pageItems.map(t=>`
+            <tr>
+              <td>${escapeHtml(t.date)}</td>
+              <td>${escapeHtml(t.customerName||'—')}${t.itemId==="it_tiao" && t.customerType ? `<div class="faint">${t.customerType}</div>`:''}</td>
+              <td><span class="pill pill-mute">${escapeHtml(t.category)}</span></td>
+              <td>${escapeHtml(t.itemName)}</td>
+              <td>${escapeHtml(t.therapistName||'未指定')}</td>
+              <td class="num mono">${fmtNum(t.qty)}</td>
+              <td class="num mono">${fmtMoney(t.unitPrice)}</td>
+              <td class="num mono">${t.discount?fmtMoney(t.discount):'—'}</td>
+              <td class="num mono" style="font-weight:700;">${fmtMoney(t.amount)}</td>
+              <td>${escapeHtml(t.payment||'—')}</td>
+              <td class="faint">${escapeHtml(t.note||'')}</td>
+              <td>
+                <div class="flex gap8">
+                  <button class="icon-btn" data-action="edit-transaction" data-id="${t.id}" title="編輯">✎</button>
+                  <button class="icon-btn" data-action="delete-transaction" data-id="${t.id}" title="刪除">🗑</button>
+                </div>
+              </td>
+            </tr>`).join("") : `<tr class="empty-row"><td colspan="12">找不到符合條件的消費紀錄</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+    <div class="flex justify-between items-center mt12" style="flex-wrap:wrap; gap:8px;">
+      <div class="faint">共 ${list.length} 筆，合計 <b class="mono" style="color:var(--ink)">${fmtMoney(sumAmount)}</b></div>
+    </div>
+  `;
+  document.getElementById("txPagination").innerHTML = totalPages>1 ? `
+    <button class="btn btn-ghost btn-sm" ${txPage<=1?'disabled':''} id="txPrev">‹ 上一頁</button>
+    <span>第 ${txPage} / ${totalPages} 頁</span>
+    <button class="btn btn-ghost btn-sm" ${txPage>=totalPages?'disabled':''} id="txNext">下一頁 ›</button>
+  ` : "";
+  if(document.getElementById("txPrev")) document.getElementById("txPrev").addEventListener("click", ()=>{txPage--; renderTxTable();});
+  if(document.getElementById("txNext")) document.getElementById("txNext").addEventListener("click", ()=>{txPage++; renderTxTable();});
+}
+function exportTransactionsCsv(){
+  const list = filteredTx();
+  const header = ["日期","客戶","類別","項目","調理師","客戶類別","數量","單價","折扣","金額","付款方式","備註"];
+  const rows = list.map(t=>[t.date,t.customerName,t.category,t.itemName,t.therapistName,t.customerType,t.qty,t.unitPrice,t.discount,t.amount,t.payment,t.note]);
+  downloadCsv("消費紀錄.csv", header, rows);
+  toast("已匯出 CSV", "success");
+}
+function downloadCsv(filename, header, rows){
+  const esc = v => { v = (v===undefined||v===null) ? "" : String(v); if(/[",\n]/.test(v)) v = '"'+v.replace(/"/g,'""')+'"'; return v; };
+  const csv = [header.map(esc).join(","), ...rows.map(r=>r.map(esc).join(","))].join("\r\n");
+  const blob = new Blob(["\uFEFF"+csv], {type:"text/csv;charset=utf-8;"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function txFormBody(tx){
+  const isEdit = !!tx;
+  const cats = CATEGORIES;
+  return `
+    <form id="txForm">
+      <div class="form-row">
+        <div class="field"><label>日期 *</label><input type="date" name="date" required value="${tx?tx.date:todayStr()}"></div>
+        <div class="field"><label>客戶</label>
+          <input type="text" name="customerName" list="customerDatalist" placeholder="輸入或選擇客戶（可留白＝現場客）" value="${escapeHtml(tx?tx.customerName:'')}">
+          <datalist id="customerDatalist">${state.customers.map(c=>`<option value="${escapeHtml(c.name)}">`).join("")}</datalist>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>類別 *</label>
+          <select name="category" id="txfCategory">${cats.map(c=>`<option ${tx&&tx.category===c?'selected':''}>${c}</option>`).join("")}</select>
+        </div>
+        <div class="field"><label>項目 *</label>
+          <select name="itemId" id="txfItem"></select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field" id="txfCustomerTypeWrap"><label>客戶類別（影響調理費）</label>
+          <select name="customerType" id="txfCustomerType">${CUSTOMER_TYPES.map(c=>`<option ${tx&&tx.customerType===c?'selected':''}>${c}</option>`).join("")}</select>
+        </div>
+        <div class="field"><label>調理師</label>
+          <select name="therapistId" id="txfTherapist"><option value="">未指定</option>${state.therapists.map(t=>`<option value="${t.id}" ${tx&&tx.therapistId===t.id?'selected':''}>${escapeHtml(t.name)}（${t.level}級）</option>`).join("")}</select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>數量 *</label><input type="number" name="qty" min="1" step="1" required value="${tx?tx.qty:1}" id="txfQty"></div>
+        <div class="field"><label>單價（可手動調整）</label><input type="number" name="unitPrice" min="0" step="1" value="${tx?tx.unitPrice:0}" id="txfUnitPrice"></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>折扣金額</label><input type="number" name="discount" min="0" step="1" value="${tx?tx.discount:0}" id="txfDiscount"></div>
+        <div class="field"><label>付款方式</label><select name="payment">${PAYMENTS.map(p=>`<option ${tx&&tx.payment===p?'selected':''}>${p}</option>`).join("")}</select></div>
+      </div>
+      <div class="field">
+        <label>實收金額（自動計算＝單價×數量－折扣，可手動覆寫）</label>
+        <input type="number" name="amount" min="0" step="1" value="${tx?tx.amount:0}" id="txfAmount">
+      </div>
+      <div class="field"><label>備註</label><textarea name="note" placeholder="選填">${escapeHtml(tx?tx.note:'')}</textarea></div>
+    </form>
+  `;
+}
+function refreshTxItemOptions(selectedItemId){
+  const cat = document.getElementById("txfCategory").value;
+  const itemSel = document.getElementById("txfItem");
+  const opts = state.items.filter(i=>i.category===cat);
+  itemSel.innerHTML = opts.map(i=>`<option value="${i.id}" ${i.id===selectedItemId?'selected':''}>${escapeHtml(i.name)}${i.special==='level'?'（依調理師等級定價）':''}</option>`).join("");
+  toggleCustomerTypeVisibility();
+  recalcTxAmount();
+}
+function toggleCustomerTypeVisibility(){
+  const itemId = document.getElementById("txfItem").value;
+  const wrap = document.getElementById("txfCustomerTypeWrap");
+  wrap.style.display = itemId === "it_tiao" ? "" : "none";
+}
+function recalcTxAmount(){
+  const itemId = document.getElementById("txfItem").value;
+  const therapistId = document.getElementById("txfTherapist").value;
+  const customerType = document.getElementById("txfCustomerType").value;
+  let unitPrice = unitPriceFor(itemId, therapistId, customerType);
+  document.getElementById("txfUnitPrice").value = unitPrice;
+  updateAmountField();
+}
+function updateAmountField(){
+  const qty = Number(document.getElementById("txfQty").value)||0;
+  const unitPrice = Number(document.getElementById("txfUnitPrice").value)||0;
+  const discount = Number(document.getElementById("txfDiscount").value)||0;
+  document.getElementById("txfAmount").value = clamp0(unitPrice*qty - discount);
+}
+function openTransactionModal(tx){
+  openModal({
+    title: tx ? "編輯消費紀錄" : "新增消費紀錄",
+    wide:true,
+    bodyHTML: txFormBody(tx),
+    footHTML: `<button class="btn btn-ghost" data-close>取消</button><button class="btn btn-primary" id="txSaveBtn">${tx?'儲存變更':'新增紀錄'}</button>`,
+    onOpen(){
+      document.getElementById("txfCategory").addEventListener("change", ()=>refreshTxItemOptions());
+      document.getElementById("txfItem").addEventListener("change", ()=>{ toggleCustomerTypeVisibility(); recalcTxAmount(); });
+      document.getElementById("txfTherapist").addEventListener("change", recalcTxAmount);
+      document.getElementById("txfCustomerType").addEventListener("change", recalcTxAmount);
+      document.getElementById("txfQty").addEventListener("input", updateAmountField);
+      document.getElementById("txfDiscount").addEventListener("input", updateAmountField);
+      document.getElementById("txfUnitPrice").addEventListener("input", updateAmountField);
+      refreshTxItemOptions(tx?tx.itemId:undefined);
+      if(tx){ document.getElementById("txfUnitPrice").value = tx.unitPrice; document.getElementById("txfAmount").value = tx.amount; }
+      document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click", closeModal));
+      document.getElementById("txSaveBtn").addEventListener("click", ()=> saveTransactionForm(tx));
+    }
+  });
+}
+function saveTransactionForm(existing){
+  const form = document.getElementById("txForm");
+  const fd = new FormData(form);
+  const date = fd.get("date");
+  if(!date){ toast("請選擇日期", "error"); return; }
+  const itemId = fd.get("itemId");
+  const item = byId(state.items, itemId);
+  if(!item){ toast("請選擇項目", "error"); return; }
+  const customerNameRaw = (fd.get("customerName")||"").trim();
+  let customerId = "", customerName = customerNameRaw;
+  const matched = state.customers.find(c=>c.name===customerNameRaw);
+  if(matched){ customerId = matched.id; customerName = matched.name; }
+  const therapistId = fd.get("therapistId")||"";
+  const therapist = byId(state.therapists, therapistId);
+
+  const record = {
+    id: existing ? existing.id : uid("tx"),
+    date, customerId, customerName,
+    therapistId, therapistName: therapist?therapist.name:"",
+    category: fd.get("category"),
+    itemId, itemName: item.name,
+    customerType: item.id==="it_tiao" ? fd.get("customerType") : "",
+    qty: Number(fd.get("qty"))||1,
+    unitPrice: Number(fd.get("unitPrice"))||0,
+    discount: Number(fd.get("discount"))||0,
+    amount: Number(fd.get("amount"))||0,
+    payment: fd.get("payment"),
+    note: fd.get("note")||"",
+  };
+  if(existing){
+    const idx = state.transactions.findIndex(t=>t.id===existing.id);
+    state.transactions[idx] = record;
+  } else {
+    state.transactions.push(record);
+  }
+  saveState();
+  closeModal();
+  toast(existing?"已更新消費紀錄":"已新增消費紀錄", "success");
+  if(activeTab==="transactions") renderTxTable();
+  if(activeTab==="dashboard") renderDashboard();
+}
+function deleteTransaction(id){
+  confirmModal({
+    title:"刪除消費紀錄", message:"確定要刪除這筆消費紀錄嗎？此動作無法復原。", confirmText:"刪除", danger:true,
+    onConfirm(){
+      state.transactions = state.transactions.filter(t=>t.id!==id);
+      saveState();
+      toast("已刪除消費紀錄","success");
+      renderTxTable();
+    }
+  });
+}
+
+/* =======================================================
+   8. 客戶管理
+   ======================================================= */
+let customerKeyword = "";
+function renderCustomers(){
+  const el = document.getElementById("panel-customers");
+  document.getElementById("topbarActions").innerHTML = `<button class="btn btn-primary" data-action="add-customer">${icon('plus')} 新增客戶</button>`;
+  el.innerHTML = `
+    <div class="card card-pad">
+      <div class="toolbar">
+        <div class="field grow"><label>搜尋（姓名／電話／編號）</label><input type="text" id="custKeyword" value="${escapeHtml(customerKeyword)}" placeholder="輸入關鍵字…"></div>
+      </div>
+      <div id="custTableWrap"></div>
+    </div>
+  `;
+  document.getElementById("custKeyword").addEventListener("input", (e)=>{ customerKeyword=e.target.value; renderCustomerTable(); });
+  renderCustomerTable();
+}
+function renderCustomerTable(){
+  const kw = customerKeyword.toLowerCase();
+  const list = state.customers.filter(c => !kw || [c.name,c.phone,c.code,c.referrer].join(" ").toLowerCase().includes(kw));
+  document.getElementById("custTableWrap").innerHTML = `
+    <div class="table-wrap mt12">
+      <table>
+        <thead><tr><th>編號</th><th>姓名</th><th>電話</th><th>類別</th><th>轉介人</th><th class="num">儲值餘額</th><th>備註</th><th>操作</th></tr></thead>
+        <tbody>
+          ${list.length? list.map(c=>`
+            <tr>
+              <td>${escapeHtml(c.code||'—')}</td>
+              <td>${escapeHtml(c.name)}</td>
+              <td>${escapeHtml(c.phone||'—')}</td>
+              <td><span class="pill ${c.type==='選手'?'pill-good':'pill-mute'}">${escapeHtml(c.type)}</span></td>
+              <td>${escapeHtml(c.referrer||'—')}</td>
+              <td class="num mono">${fmtMoney(customerBalance(c.id))}</td>
+              <td class="faint">${escapeHtml(c.note||'')}</td>
+              <td><div class="flex gap8">
+                <button class="icon-btn" data-action="edit-customer" data-id="${c.id}" title="編輯">✎</button>
+                <button class="icon-btn" data-action="delete-customer" data-id="${c.id}" title="刪除">🗑</button>
+              </div></td>
+            </tr>`).join("") : `<tr class="empty-row"><td colspan="8">尚無客戶資料，點右上角「新增客戶」開始建立</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+function customerFormBody(c){
+  return `
+    <form id="custForm">
+      <div class="form-row">
+        <div class="field"><label>姓名 *</label><input type="text" name="name" required value="${escapeHtml(c?c.name:'')}"></div>
+        <div class="field"><label>編號</label><input type="text" name="code" placeholder="例如 A001" value="${escapeHtml(c?c.code:'')}"></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>電話</label><input type="tel" name="phone" value="${escapeHtml(c?c.phone:'')}"></div>
+        <div class="field"><label>客戶類別</label><select name="type">${CUSTOMER_TYPES.map(t=>`<option ${c&&c.type===t?'selected':''}>${t}</option>`).join("")}</select></div>
+      </div>
+      <div class="field"><label>轉介人</label><input type="text" name="referrer" value="${escapeHtml(c?c.referrer:'')}"></div>
+      <div class="field"><label>備註</label><textarea name="note">${escapeHtml(c?c.note:'')}</textarea></div>
+    </form>
+  `;
+}
+function openCustomerModal(c){
+  openModal({
+    title: c?"編輯客戶":"新增客戶",
+    bodyHTML: customerFormBody(c),
+    footHTML: `<button class="btn btn-ghost" data-close>取消</button><button class="btn btn-primary" id="custSaveBtn">${c?'儲存變更':'新增客戶'}</button>`,
+    onOpen(){
+      document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click", closeModal));
+      document.getElementById("custSaveBtn").addEventListener("click", ()=>{
+        const fd = new FormData(document.getElementById("custForm"));
+        const name = (fd.get("name")||"").trim();
+        if(!name){ toast("請輸入姓名","error"); return; }
+        const record = {
+          id: c?c.id:uid("cu"), name, code: fd.get("code")||"", phone: fd.get("phone")||"",
+          type: fd.get("type"), referrer: fd.get("referrer")||"", note: fd.get("note")||"",
+        };
+        if(c){ const idx = state.customers.findIndex(x=>x.id===c.id); state.customers[idx]=record; }
+        else state.customers.push(record);
+        saveState(); closeModal(); toast(c?"已更新客戶資料":"已新增客戶","success"); renderCustomerTable();
+      });
+    }
+  });
+}
+function deleteCustomer(id){
+  const used = state.transactions.some(t=>t.customerId===id);
+  confirmModal({
+    title:"刪除客戶",
+    message: used ? "此客戶已有相關消費紀錄，刪除後歷史紀錄仍會保留姓名文字，但不再連結客戶資料。確定要刪除嗎？" : "確定要刪除這位客戶嗎？",
+    confirmText:"刪除", danger:true,
+    onConfirm(){ state.customers = state.customers.filter(c=>c.id!==id); saveState(); toast("已刪除客戶","success"); renderCustomerTable(); }
+  });
+}
+
+/* =======================================================
+   9. 調理師管理
+   ======================================================= */
+function renderTherapists(){
+  const el = document.getElementById("panel-therapists");
+  document.getElementById("topbarActions").innerHTML = `<button class="btn btn-primary" data-action="add-therapist">${icon('plus')} 新增調理師</button>`;
+  const now = new Date(); const monthKey = now.toISOString().slice(0,7);
+  el.innerHTML = `
+    <div class="note-box mb8">調理師的「等級」會決定一般客人調理服務的單價（於「項目與價目」頁面設定各等級費用）。</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>姓名</th><th>等級</th><th>電話</th><th>狀態</th><th>到職日</th><th class="num">本月調理次數</th><th class="num">本月薪資試算</th><th>備註</th><th>操作</th></tr></thead>
+        <tbody>
+          ${state.therapists.length? state.therapists.map(t=>{
+            const s = computeTherapistSettlement(t.id, monthKey);
+            return `<tr>
+              <td>${escapeHtml(t.name)}</td>
+              <td><span class="pill pill-${t.level}">${t.level} 級</span></td>
+              <td>${escapeHtml(t.phone||'—')}</td>
+              <td><span class="pill ${t.status==='active'?'pill-good':'pill-mute'}">${t.status==='active'?'在職':'停用'}</span></td>
+              <td>${escapeHtml(t.joinDate||'—')}</td>
+              <td class="num mono">${fmtNum(s.treatmentCount)}</td>
+              <td class="num mono">${fmtMoney(s.total)}</td>
+              <td class="faint">${escapeHtml(t.note||'')}</td>
+              <td><div class="flex gap8">
+                <button class="icon-btn" data-action="edit-therapist" data-id="${t.id}" title="編輯">✎</button>
+                <button class="icon-btn" data-action="delete-therapist" data-id="${t.id}" title="刪除">🗑</button>
+              </div></td>
+            </tr>`;
+          }).join("") : `<tr class="empty-row"><td colspan="9">尚無調理師資料，點右上角「新增調理師」開始建立</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+function therapistFormBody(t){
+  return `
+    <form id="thForm">
+      <div class="form-row">
+        <div class="field"><label>姓名 *</label><input type="text" name="name" required value="${escapeHtml(t?t.name:'')}"></div>
+        <div class="field"><label>等級 *</label><select name="level">${LEVELS.map(l=>`<option ${t&&t.level===l?'selected':''}>${l}</option>`).join("")}</select></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>電話</label><input type="tel" name="phone" value="${escapeHtml(t?t.phone:'')}"></div>
+        <div class="field"><label>到職日</label><input type="date" name="joinDate" value="${t?t.joinDate:todayStr()}"></div>
+      </div>
+      <div class="field"><label>狀態</label><select name="status"><option value="active" ${!t||t.status==='active'?'selected':''}>在職</option><option value="inactive" ${t&&t.status==='inactive'?'selected':''}>停用</option></select></div>
+      <div class="field"><label>備註</label><textarea name="note">${escapeHtml(t?t.note:'')}</textarea></div>
+    </form>
+  `;
+}
+function openTherapistModal(t){
+  openModal({
+    title: t?"編輯調理師":"新增調理師",
+    bodyHTML: therapistFormBody(t),
+    footHTML: `<button class="btn btn-ghost" data-close>取消</button><button class="btn btn-primary" id="thSaveBtn">${t?'儲存變更':'新增調理師'}</button>`,
+    onOpen(){
+      document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click", closeModal));
+      document.getElementById("thSaveBtn").addEventListener("click", ()=>{
+        const fd = new FormData(document.getElementById("thForm"));
+        const name = (fd.get("name")||"").trim();
+        if(!name){ toast("請輸入姓名","error"); return; }
+        const record = { id: t?t.id:uid("th"), name, level: fd.get("level"), phone: fd.get("phone")||"", joinDate: fd.get("joinDate")||"", status: fd.get("status"), note: fd.get("note")||"" };
+        if(t){ const idx = state.therapists.findIndex(x=>x.id===t.id); state.therapists[idx]=record; }
+        else state.therapists.push(record);
+        saveState(); closeModal(); toast(t?"已更新調理師":"已新增調理師","success"); renderTherapists();
+      });
+    }
+  });
+}
+function deleteTherapist(id){
+  confirmModal({
+    title:"刪除調理師", message:"確定要刪除這位調理師嗎？歷史消費紀錄會保留姓名文字紀錄。", confirmText:"刪除", danger:true,
+    onConfirm(){ state.therapists = state.therapists.filter(t=>t.id!==id); saveState(); toast("已刪除調理師","success"); renderTherapists(); }
+  });
+}
+
+/* =======================================================
+   10. 項目與價目
+   ======================================================= */
+function renderItems(){
+  const el = document.getElementById("panel-items");
+  document.getElementById("topbarActions").innerHTML = `<button class="btn btn-primary" data-action="add-item">${icon('plus')} 新增項目</button>`;
+  el.innerHTML = `
+    <div class="card card-pad">
+      <div class="section-head"><h3>調理費用（依調理師等級）</h3><span class="desc">「一般客人」調理費依調理師等級計算；「選手」客戶另設定固定費用</span></div>
+      <div class="grid grid-4" id="levelFeeGrid"></div>
+      <div class="mt12"><button class="btn btn-accent btn-sm" id="saveLevelFeeBtn">儲存等級價目</button></div>
+    </div>
+    <div class="card card-pad mt16">
+      <div class="section-head"><h3>服務／商品／其他／儲值項目</h3><span class="desc">「調理」項目價格由上方等級表決定，其餘項目可自訂單價</span></div>
+      <div id="itemsTableWrap"></div>
+    </div>
+  `;
+  const lf = state.pricing.levelFee;
+  document.getElementById("levelFeeGrid").innerHTML = LEVELS.map(l=>`
+    <div class="field"><label>${l} 級調理費（一般客人）</label><input type="number" min="0" step="10" data-level="${l}" value="${lf[l]}"></div>
+  `).join("") + `<div class="field"><label>選手固定調理費</label><input type="number" min="0" step="10" id="athleteFeeInput" value="${state.pricing.athleteFee}"></div>`;
+  document.getElementById("saveLevelFeeBtn").addEventListener("click", ()=>{
+    LEVELS.forEach(l=>{ const inp = document.querySelector(`[data-level="${l}"]`); state.pricing.levelFee[l] = Number(inp.value)||0; });
+    state.pricing.athleteFee = Number(document.getElementById("athleteFeeInput").value)||0;
+    saveState(); toast("已儲存等級價目","success"); renderTherapists();
+  });
+  renderItemsTable();
+}
+function renderItemsTable(){
+  document.getElementById("itemsTableWrap").innerHTML = `
+    <div class="table-wrap mt12">
+      <table>
+        <thead><tr><th>類別</th><th>項目名稱</th><th class="num">單價</th><th>備註</th><th>操作</th></tr></thead>
+        <tbody>
+          ${state.items.map(i=>`
+            <tr>
+              <td><span class="pill pill-mute">${escapeHtml(i.category)}</span></td>
+              <td>${escapeHtml(i.name)}</td>
+              <td class="num mono">${i.special==='level' ? '依等級定價' : fmtMoney(i.price)}</td>
+              <td class="faint">${i.special==='level'?'請於上方等級價目表調整':''}</td>
+              <td><div class="flex gap8">
+                <button class="icon-btn" data-action="edit-item" data-id="${i.id}" title="編輯">✎</button>
+                ${i.special!=='level' ? `<button class="icon-btn" data-action="delete-item" data-id="${i.id}" title="刪除">🗑</button>` : ''}
+              </div></td>
+            </tr>`).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+function itemFormBody(i){
+  return `
+    <form id="itemForm">
+      <div class="form-row">
+        <div class="field"><label>類別 *</label><select name="category">${CATEGORIES.map(c=>`<option ${i&&i.category===c?'selected':''}>${c}</option>`).join("")}</select></div>
+        <div class="field"><label>項目名稱 *</label><input type="text" name="name" required value="${escapeHtml(i?i.name:'')}"></div>
+      </div>
+      <div class="field"><label>單價 *</label><input type="number" name="price" min="0" step="1" required value="${i?i.price:0}"></div>
+    </form>
+  `;
+}
+function openItemModal(i){
+  openModal({
+    title: i?"編輯項目":"新增項目",
+    bodyHTML: itemFormBody(i),
+    footHTML: `<button class="btn btn-ghost" data-close>取消</button><button class="btn btn-primary" id="itemSaveBtn">${i?'儲存變更':'新增項目'}</button>`,
+    onOpen(){
+      document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click", closeModal));
+      document.getElementById("itemSaveBtn").addEventListener("click", ()=>{
+        const fd = new FormData(document.getElementById("itemForm"));
+        const name = (fd.get("name")||"").trim();
+        if(!name){ toast("請輸入項目名稱","error"); return; }
+        const record = { id: i?i.id:uid("it"), category: fd.get("category"), name, price: Number(fd.get("price"))||0 };
+        if(i){ const idx = state.items.findIndex(x=>x.id===i.id); state.items[idx] = {...state.items[idx], ...record}; }
+        else {
+          state.items.push(record);
+          state.commission.otherRates[record.id] = 0;
+          state.costs[record.id] = 0;
+        }
+        saveState(); closeModal(); toast(i?"已更新項目":"已新增項目","success"); renderItemsTable();
+      });
+    }
+  });
+}
+function deleteItem(id){
+  const used = state.transactions.some(t=>t.itemId===id);
+  confirmModal({
+    title:"刪除項目",
+    message: used? "此項目已有消費紀錄使用，仍可刪除但歷史紀錄名稱會保留。確定要刪除嗎？" : "確定要刪除這個項目嗎？",
+    confirmText:"刪除", danger:true,
+    onConfirm(){
+      state.items = state.items.filter(i=>i.id!==id);
+      delete state.commission.otherRates[id];
+      delete state.costs[id];
+      saveState(); toast("已刪除項目","success"); renderItemsTable();
+    }
+  });
+}
+
+/* =======================================================
+   11. 分潤規則
+   ======================================================= */
+function renderCommission(){
+  const el = document.getElementById("panel-commission");
+  el.innerHTML = `
+    <div class="card card-pad">
+      <div class="section-head">
+        <div><h3>調理量分潤比例</h3><div class="desc">依當月「調理」次數區間，決定調理金額的分潤比例（可額外加固定獎金）</div></div>
+        <button class="btn btn-ghost btn-sm" id="addTreatmentTier">＋ 新增區間</button>
+      </div>
+      <div id="treatmentTierWrap"></div>
+      <div class="mt12"><button class="btn btn-accent btn-sm" id="saveTreatmentTiers">儲存調理分潤設定</button></div>
+    </div>
+
+    <div class="card card-pad mt16">
+      <div class="section-head">
+        <div><h3>枕頭銷售分潤</h3><div class="desc">依當月枕頭銷售「數量」區間，決定每顆分潤金額（可額外加固定獎金）</div></div>
+        <button class="btn btn-ghost btn-sm" id="addPillowTier">＋ 新增區間</button>
+      </div>
+      <div id="pillowTierWrap"></div>
+      <div class="mt12"><button class="btn btn-accent btn-sm" id="savePillowTiers">儲存枕頭分潤設定</button></div>
+    </div>
+
+    <div class="card card-pad mt16">
+      <div class="section-head"><h3>其他項目分潤（每單位）</h3><span class="desc">除「調理」與「枕頭」外，其餘項目每售出一單位可獲得的分潤金額</span></div>
+      <div id="otherRateWrap"></div>
+      <div class="mt12"><button class="btn btn-accent btn-sm" id="saveOtherRates">儲存其他項目分潤</button></div>
+    </div>
+  `;
+  renderTierTable("treatmentTierWrap", state.commission.treatmentTiers, "次");
+  renderTierTable("pillowTierWrap", state.commission.pillowTiers, "顆");
+  document.getElementById("addTreatmentTier").addEventListener("click", ()=>{
+    state.commission.treatmentTiers.push({id:uid("tt"), min:0, max:0, rate:0, bonus:0, label:"新區間"});
+    renderTierTable("treatmentTierWrap", state.commission.treatmentTiers, "次");
+  });
+  document.getElementById("addPillowTier").addEventListener("click", ()=>{
+    state.commission.pillowTiers.push({id:uid("pt"), min:0, max:0, rate:0, bonus:0, label:"新區間"});
+    renderTierTable("pillowTierWrap", state.commission.pillowTiers, "顆");
+  });
+  document.getElementById("saveTreatmentTiers").addEventListener("click", ()=>{ collectTierInputs("treatmentTierWrap", state.commission.treatmentTiers); saveState(); toast("已儲存調理分潤設定","success"); });
+  document.getElementById("savePillowTiers").addEventListener("click", ()=>{ collectTierInputs("pillowTierWrap", state.commission.pillowTiers); saveState(); toast("已儲存枕頭分潤設定","success"); });
+
+  const otherItems = state.items.filter(i=>i.id!=="it_tiao" && i.id!=="it_pillow");
+  document.getElementById("otherRateWrap").innerHTML = `
+    <div class="table-wrap mt12"><table>
+      <thead><tr><th>項目</th><th>類別</th><th class="num">每單位分潤</th></tr></thead>
+      <tbody>
+        ${otherItems.map(i=>`<tr><td>${escapeHtml(i.name)}</td><td><span class="pill pill-mute">${i.category}</span></td>
+          <td class="num"><input type="number" min="0" step="1" style="max-width:120px; margin-left:auto;" data-other-rate="${i.id}" value="${state.commission.otherRates[i.id]||0}"></td></tr>`).join("")}
+      </tbody>
+    </table></div>
+  `;
+  document.getElementById("saveOtherRates").addEventListener("click", ()=>{
+    document.querySelectorAll("[data-other-rate]").forEach(inp=>{
+      state.commission.otherRates[inp.dataset.otherRate] = Number(inp.value)||0;
+    });
+    saveState(); toast("已儲存其他項目分潤","success");
+  });
+}
+function renderTierTable(wrapId, tiers, unitLabel){
+  document.getElementById(wrapId).innerHTML = `
+    <div class="table-wrap mt12"><table>
+      <thead><tr><th>說明</th><th class="num">最少${unitLabel}</th><th class="num">最多${unitLabel}</th><th class="num">分潤比例／每單位</th><th class="num">額外固定獎金</th><th></th></tr></thead>
+      <tbody>
+        ${tiers.map((t,idx)=>`
+          <tr data-tier-id="${t.id}">
+            <td><input type="text" data-f="label" value="${escapeHtml(t.label)}"></td>
+            <td class="num"><input type="number" data-f="min" value="${t.min}" style="max-width:90px; margin-left:auto;"></td>
+            <td class="num"><input type="number" data-f="max" value="${t.max}" style="max-width:90px; margin-left:auto;"></td>
+            <td class="num"><input type="number" step="0.01" data-f="rate" value="${t.rate}" style="max-width:100px; margin-left:auto;"></td>
+            <td class="num"><input type="number" data-f="bonus" value="${t.bonus||0}" style="max-width:100px; margin-left:auto;"></td>
+            <td><button class="icon-btn" data-remove-tier="${t.id}" title="刪除區間">🗑</button></td>
+          </tr>`).join("")}
+      </tbody>
+    </table></div>
+  `;
+  document.querySelectorAll(`#${wrapId} [data-remove-tier]`).forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const id = btn.dataset.removeTier;
+      const arr = tiers;
+      const idx = arr.findIndex(t=>t.id===id);
+      if(idx>=0) arr.splice(idx,1);
+      renderTierTable(wrapId, tiers, unitLabel);
+    });
+  });
+}
+function collectTierInputs(wrapId, tiers){
+  document.querySelectorAll(`#${wrapId} tr[data-tier-id]`).forEach(row=>{
+    const id = row.dataset.tierId;
+    const t = tiers.find(x=>x.id===id);
+    if(!t) return;
+    t.label = row.querySelector('[data-f="label"]').value;
+    t.min = Number(row.querySelector('[data-f="min"]').value)||0;
+    t.max = Number(row.querySelector('[data-f="max"]').value)||0;
+    t.rate = Number(row.querySelector('[data-f="rate"]').value)||0;
+    t.bonus = Number(row.querySelector('[data-f="bonus"]').value)||0;
+  });
+}
+
+/* =======================================================
+   12. 月結算薪資
+   ======================================================= */
+let settlementMonth = new Date().toISOString().slice(0,7);
+function renderSettlement(){
+  const el = document.getElementById("panel-settlement");
+  document.getElementById("topbarActions").innerHTML = `
+    <button class="btn btn-ghost" id="settlementPrint">列印／匯出</button>
+  `;
+  el.innerHTML = `
+    <div class="card card-pad">
+      <div class="toolbar">
+        <div class="field"><label>結算月份</label><input type="month" id="settlementMonthInput" value="${settlementMonth}"></div>
+        <button class="btn btn-primary" id="settlementRecalc">重新試算</button>
+        <button class="btn btn-accent" id="settlementSaveAll">儲存本月所有調整</button>
+      </div>
+      <div id="settlementStudioSummary"></div>
+      <div id="settlementTableWrap" class="mt16"></div>
+    </div>
+  `;
+  document.getElementById("settlementMonthInput").addEventListener("change", (e)=>{ settlementMonth = e.target.value; renderSettlementTable(); });
+  document.getElementById("settlementRecalc").addEventListener("click", renderSettlementTable);
+  document.getElementById("settlementSaveAll").addEventListener("click", saveSettlementAll);
+  document.getElementById("settlementPrint").addEventListener("click", ()=> window.print());
+  renderSettlementTable();
+}
+function renderSettlementTable(){
+  const monthKey = settlementMonth;
+  const activeTherapists = state.therapists.filter(t=>t.status==="active");
+  const rows = activeTherapists.map(t=>({th:t, s:computeTherapistSettlement(t.id, monthKey)}));
+
+  const txs = monthTransactions(monthKey);
+  const totalRevenue = txs.reduce((s,t)=>s+(Number(t.amount)||0),0);
+  const payroll = rows.reduce((s,r)=>s+r.s.total,0);
+  const goodsCost = txs.filter(t=>t.category==="商品").reduce((s,t)=>s + (state.costs[t.itemId]||0)*(Number(t.qty)||0), 0);
+  const profit = totalRevenue - payroll - goodsCost;
+
+  document.getElementById("settlementStudioSummary").innerHTML = `
+    <div class="grid grid-4 mt16">
+      <div class="card stat-card"><div class="label">當月總收入</div><div class="value">${fmtMoney(totalRevenue)}</div></div>
+      <div class="card stat-card"><div class="label">人事支出（薪資合計）</div><div class="value">${fmtMoney(payroll)}</div></div>
+      <div class="card stat-card"><div class="label">商品進貨成本</div><div class="value">${fmtMoney(goodsCost)}</div><div class="hint">依「項目與價目」成本設定估算</div></div>
+      <div class="card stat-card"><div class="label">估計獲利</div><div class="value" style="color:${profit>=0?'var(--success)':'var(--danger)'}">${fmtMoney(profit)}</div></div>
+    </div>
+  `;
+
+  document.getElementById("settlementTableWrap").innerHTML = `
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>調理師</th><th class="num">調理次數</th><th class="num">調理金額</th><th class="num">建議比例</th>
+          <th class="num">分潤比例(可調整)</th><th class="num">調理分潤</th>
+          <th class="num">枕頭數量</th><th class="num">枕頭分潤(可調整)</th>
+          <th class="num">其他項目分潤</th><th class="num">團隊獎金(可調整)</th>
+          <th class="num">總薪資</th><th></th>
+        </tr></thead>
+        <tbody>
+          ${rows.length ? rows.map(({th,s})=>`
+            <tr data-settle-row="${th.id}">
+              <td>${escapeHtml(th.name)} <span class="pill pill-${th.level}">${th.level}</span></td>
+              <td class="num mono">${fmtNum(s.treatmentCount)}</td>
+              <td class="num mono">${fmtMoney(s.treatmentRevenue)}</td>
+              <td class="num faint">${(s.suggestedRate*100).toFixed(0)}%${s.suggestedTierBonus?`+${fmtMoney(s.suggestedTierBonus)}`:''}</td>
+              <td class="num"><input type="number" step="0.01" min="0" max="1" data-settle="rate" value="${s.rate}" style="max-width:90px; margin-left:auto;"></td>
+              <td class="num mono" data-out="treatmentPay">${fmtMoney(s.treatmentPay)}</td>
+              <td class="num mono">${fmtNum(s.pillowQty)}</td>
+              <td class="num"><input type="number" min="0" data-settle="pillow" value="${s.pillowPay}" style="max-width:100px; margin-left:auto;"></td>
+              <td class="num mono" title="${s.otherDetail.map(d=>d.itemName+'×'+d.qty+'='+Math.round(d.amount)).join(', ')||'—'}">${fmtMoney(s.otherTotal)}</td>
+              <td class="num"><input type="number" min="0" data-settle="teamBonus" value="${s.teamBonus}" style="max-width:100px; margin-left:auto;"></td>
+              <td class="num mono" style="font-weight:700;" data-out="total">${fmtMoney(s.total)}</td>
+              <td><button class="btn btn-ghost btn-sm" data-reset-settle="${th.id}">還原建議值</button></td>
+            </tr>`).join("") : `<tr class="empty-row"><td colspan="12">目前沒有在職調理師</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+    <div class="faint mt12">提示：滑鼠移到「其他項目分潤」欄位可看到明細；調整「分潤比例」「枕頭分潤」「團隊獎金」後，需按上方「儲存本月所有調整」才會保留。</div>
+  `;
+
+  document.querySelectorAll('[data-settle-row]').forEach(row=>{
+    const thId = row.dataset.settleRow;
+    row.querySelectorAll('[data-settle]').forEach(inp=>{
+      inp.addEventListener("input", ()=> recomputeSettleRow(thId, monthKey));
+    });
+    const resetBtn = row.querySelector('[data-reset-settle]');
+    if(resetBtn) resetBtn.addEventListener("click", ()=>{
+      if(state.settlements[monthKey]) delete state.settlements[monthKey][thId];
+      saveState();
+      renderSettlementTable();
+    });
+  });
+}
+function recomputeSettleRow(thId, monthKey){
+  const row = document.querySelector(`[data-settle-row="${thId}"]`);
+  const stats = computeTherapistMonthStats(thId, monthKey);
+  const rate = Number(row.querySelector('[data-settle="rate"]').value)||0;
+  const pillow = Number(row.querySelector('[data-settle="pillow"]').value)||0;
+  const teamBonus = Number(row.querySelector('[data-settle="teamBonus"]').value)||0;
+  const treatmentPay = stats.treatmentRevenue*rate + stats.suggestedTierBonus;
+  const total = treatmentPay + pillow + stats.otherTotal + teamBonus;
+  row.querySelector('[data-out="treatmentPay"]').textContent = fmtMoney(treatmentPay);
+  row.querySelector('[data-out="total"]').textContent = fmtMoney(total);
+}
+function saveSettlementAll(){
+  const monthKey = settlementMonth;
+  if(!state.settlements[monthKey]) state.settlements[monthKey] = {};
+  document.querySelectorAll('[data-settle-row]').forEach(row=>{
+    const thId = row.dataset.settleRow;
+    state.settlements[monthKey][thId] = {
+      rate: Number(row.querySelector('[data-settle="rate"]').value)||0,
+      pillow: Number(row.querySelector('[data-settle="pillow"]').value)||0,
+      teamBonus: Number(row.querySelector('[data-settle="teamBonus"]').value)||0,
+    };
+  });
+  saveState();
+  toast("已儲存本月薪資結算資料","success");
+  renderSettlementTable();
+}
+
+/* =======================================================
+   13. 系統設定／備份
+   ======================================================= */
+function renderBackup(){
+  const el = document.getElementById("panel-backup");
+  el.innerHTML = `
+    <div class="card card-pad">
+      <div class="section-head"><h3>工作室名稱</h3></div>
+      <div class="form-row">
+        <div class="field"><label>顯示名稱（僅用於檔案命名等功能，不會顯示在標誌圖片內）</label><input type="text" id="studioNameInput" value="${escapeHtml(state.meta.studioName)}"></div>
+      </div>
+      <button class="btn btn-accent btn-sm" id="saveStudioName">儲存名稱</button>
+    </div>
+
+    <div class="card card-pad mt16">
+      <div class="section-head"><h3>資料備份與還原</h3><span class="desc">所有資料僅儲存在目前這台電腦、這個瀏覽器中，請定期備份</span></div>
+      <div class="small-btn-row">
+        <button class="btn btn-primary" id="exportJsonBtn">匯出備份檔（JSON）</button>
+        <button class="btn btn-ghost" id="importJsonBtn">匯入備份檔</button>
+        <input type="file" id="importFileInput" accept="application/json" class="hidden">
+        <button class="btn btn-danger" id="resetAllBtn">清空所有資料</button>
+      </div>
+      <div class="note-box mt12">匯入備份檔會「完全取代」目前的所有資料，建議匯入前先匯出目前資料備份。</div>
+      <div class="faint mt8">最後更新時間：${state.meta.updatedAt ? new Date(state.meta.updatedAt).toLocaleString('zh-Hant-TW') : '—'}</div>
+    </div>
+
+    <div class="card card-pad mt16">
+      <div class="section-head"><h3>使用說明</h3></div>
+      <ol style="line-height:1.9; padding-left:20px; color:var(--ink);">
+        <li>先於「調理師管理」建立調理師並設定等級（A～D）。</li>
+        <li>於「項目與價目」確認各等級的一般客人調理費、選手固定費用，以及商品／其他項目單價。</li>
+        <li>於「分潤規則」設定調理量分潤比例、枕頭銷售分潤與其他項目分潤金額。</li>
+        <li>每天於「消費紀錄」新增客戶消費，系統會自動依「客戶類別＋調理師等級」試算單價。</li>
+        <li>月底於「月結算薪資」選擇月份，系統自動試算每位調理師薪資，可微調後「儲存本月所有調整」。</li>
+      </ol>
+    </div>
+  `;
+  document.getElementById("saveStudioName").addEventListener("click", ()=>{
+    state.meta.studioName = document.getElementById("studioNameInput").value || "工作室記帳系統";
+    saveState();
+    document.getElementById("brandName").textContent = state.meta.studioName;
+    toast("已儲存工作室名稱","success");
+  });
+  document.getElementById("exportJsonBtn").addEventListener("click", ()=>{
+    const blob = new Blob([JSON.stringify(state, null, 2)], {type:"application/json"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const dateStamp = todayStr();
+    a.href = url; a.download = `${state.meta.studioName||'工作室'}_備份_${dateStamp}.json`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    toast("已匯出備份檔","success");
+  });
+  document.getElementById("importJsonBtn").addEventListener("click", ()=> document.getElementById("importFileInput").click());
+  document.getElementById("importFileInput").addEventListener("change", (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try{
+        const data = JSON.parse(reader.result);
+        if(!data || !data.items || !data.transactions){ toast("檔案格式不正確","error"); return; }
+        confirmModal({
+          title:"匯入備份檔", message:"匯入將完全取代目前資料，確定要繼續嗎？", confirmText:"匯入並取代", danger:true,
+          onConfirm(){
+            state = data;
+            saveState();
+            toast("已匯入備份資料","success");
+            switchTab("dashboard");
+          }
+        });
+      }catch(err){ toast("讀取檔案失敗："+err.message, "error"); }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  });
+  document.getElementById("resetAllBtn").addEventListener("click", ()=>{
+    confirmModal({
+      title:"清空所有資料", message:"此動作將清除所有客戶、調理師、消費紀錄與設定，且無法復原。建議先匯出備份。確定要清空嗎？", confirmText:"清空所有資料", danger:true,
+      onConfirm(){
+        state = defaultState();
+        saveState();
+        toast("已重置為範例資料","success");
+        switchTab("dashboard");
+      }
+    });
+  });
+}
+
+/* =======================================================
+   14. 全域點擊委派（新增／編輯／刪除 按鈕）
+   ======================================================= */
+document.addEventListener("click", (e)=>{
+  const jump = e.target.closest("[data-nav-jump]");
+  if(jump){ switchTab(jump.dataset.navJump); return; }
+
+  const btn = e.target.closest("[data-action]");
+  if(!btn) return;
+  const action = btn.dataset.action;
+  const id = btn.dataset.id;
+  switch(action){
+    case "add-transaction": openTransactionModal(null); break;
+    case "edit-transaction": openTransactionModal(byId(state.transactions, id)); break;
+    case "delete-transaction": deleteTransaction(id); break;
+    case "add-customer": openCustomerModal(null); break;
+    case "edit-customer": openCustomerModal(byId(state.customers, id)); break;
+    case "delete-customer": deleteCustomer(id); break;
+    case "add-therapist": openTherapistModal(null); break;
+    case "edit-therapist": openTherapistModal(byId(state.therapists, id)); break;
+    case "delete-therapist": deleteTherapist(id); break;
+    case "add-item": openItemModal(null); break;
+    case "edit-item": openItemModal(byId(state.items, id)); break;
+    case "delete-item": deleteItem(id); break;
+  }
+});
+
+/* =======================================================
+   15. 啟動
+   ======================================================= */
+const RENDERERS = {
+  dashboard: renderDashboard,
+  transactions: renderTransactions,
+  customers: renderCustomers,
+  therapists: renderTherapists,
+  items: renderItems,
+  commission: renderCommission,
+  settlement: renderSettlement,
+  backup: renderBackup,
+};
+
+function buildShell(){
+  const content = document.getElementById("content");
+  content.innerHTML = TABS.map(t => `<div class="tab-panel" id="panel-${t.id}"></div>`).join("");
+}
+
+function init(){
+  buildShell();
+  renderNav();
+  document.getElementById("brandName").textContent = state.meta.studioName || "工作室記帳系統";
+  switchTab("dashboard");
+}
+init();
+
+})();
+</script>
+</body>
+</html>
