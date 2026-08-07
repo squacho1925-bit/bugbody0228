@@ -290,6 +290,26 @@ function escapeHtml(s){
 function byId(list, id){ return list.find(x => x.id === id); }
 function deepClone(o){ return JSON.parse(JSON.stringify(o)); }
 
+/* ---- 店長密碼保護：雜湊工具（僅用於畫面鎖，非資料庫級加密） ---- */
+const CRYPTO_OK = !!(window.crypto && window.crypto.subtle);
+function toB64(buf){ return btoa(String.fromCharCode(...new Uint8Array(buf))); }
+function fromB64(str){ return Uint8Array.from(atob(str), c=>c.charCodeAt(0)); }
+async function sha256B64(str){
+  const enc = new TextEncoder().encode(str);
+  const buf = await crypto.subtle.digest("SHA-256", enc);
+  return toB64(buf);
+}
+async function hashPassword(password, saltB64){
+  let h = saltB64 + ":" + password;
+  for(let i=0;i<3000;i++){ h = await sha256B64(h); }
+  return h;
+}
+function randomSaltB64(){
+  const arr = new Uint8Array(16);
+  crypto.getRandomValues(arr);
+  return toB64(arr);
+}
+
 /* =======================================================
    1. 預設 / 範例資料
    ======================================================= */
@@ -376,7 +396,8 @@ function defaultState(){
     },
     costs,
     transactions,
-    settlements:{}
+    settlements:{},
+    security:{hash:null, salt:null}
   };
 }
 
@@ -390,6 +411,7 @@ function loadState(){
     if(!parsed || !parsed.items) return defaultState();
     if(!parsed.meta) parsed.meta = {studioName:"悠活手調工作室", tagline:"NORMCORE"};
     if(!parsed.meta.tagline) parsed.meta.tagline = "NORMCORE";
+    if(!parsed.security) parsed.security = {hash:null, salt:null};
     return parsed;
   }catch(e){
     console.error("讀取本機資料失敗，改用預設範例資料", e);
@@ -484,6 +506,8 @@ const TABS = [
   {id:"backup", label:"系統設定／備份", icon:"database"},
 ];
 let activeTab = "dashboard";
+const LOCKED_TABS = ["dashboard","settlement","commission"];
+let sensitiveUnlocked = false;
 
 function renderNav(){
   const nav = document.getElementById("navList");
@@ -512,7 +536,66 @@ function switchTab(id){
   document.getElementById("pageSub").textContent = sub;
   document.querySelectorAll(".tab-panel").forEach(p => p.classList.toggle("active", p.id === "panel-"+id));
   document.getElementById("topbarActions").innerHTML = "";
+  if(LOCKED_TABS.includes(id) && !sensitiveUnlocked){
+    renderLockScreen(id);
+    return;
+  }
   RENDERERS[id] && RENDERERS[id]();
+  if(LOCKED_TABS.includes(id)){
+    document.getElementById("topbarActions").insertAdjacentHTML("beforeend", `<button class="btn btn-ghost" id="relockBtn">🔒 鎖定此頁</button>`);
+    document.getElementById("relockBtn").addEventListener("click", ()=>{ sensitiveUnlocked = false; switchTab(id); });
+  }
+}
+function renderLockScreen(tabId){
+  const panel = document.getElementById("panel-"+tabId);
+  const hasPassword = !!(state.security && state.security.hash);
+  if(!CRYPTO_OK){
+    panel.innerHTML = `<div class="card card-pad" style="max-width:460px; margin:40px auto; text-align:center;">
+      <div style="font-size:32px;">⚠️</div><h3 class="mt8">此瀏覽器不支援密碼保護功能</h3>
+      <p class="faint mt8">請改用較新版本的 Chrome、Edge 或 Firefox 開啟本工具。</p></div>`;
+    return;
+  }
+  panel.innerHTML = `
+    <div class="card card-pad" style="max-width:420px; margin:40px auto; text-align:center;">
+      <div style="font-size:34px; margin-bottom:8px;">🔒</div>
+      <h3>此頁僅限店長查看</h3>
+      <p class="faint mt8" style="line-height:1.7;">${hasPassword ? '請輸入店長密碼以檢視營收、獲利與薪資等機密資料。' : '尚未設定店長密碼，請先設定密碼即可保護此頁及其他機密頁面。'}</p>
+      ${hasPassword ? `
+        <div class="field mt16" style="text-align:left;"><label>店長密碼</label><input type="password" id="lockPasswordInput" autocomplete="off"></div>
+        <button class="btn btn-primary w-100 mt8" id="unlockBtn">解鎖檢視</button>
+      ` : `
+        <div class="field mt16" style="text-align:left;"><label>設定新密碼（至少 4 碼）</label><input type="password" id="setupPasswordInput" autocomplete="off"></div>
+        <div class="field" style="text-align:left;"><label>再次輸入密碼</label><input type="password" id="setupPasswordInput2" autocomplete="off"></div>
+        <button class="btn btn-primary w-100 mt8" id="setupPasswordBtn">設定並解鎖</button>
+      `}
+      <p class="faint mt12" style="line-height:1.6;">提醒：此密碼可防止一般同事於畫面上瀏覽，但資料本身仍儲存在本機瀏覽器中。如需更高等級的保護，建議使用店長專用的電腦或帳號。</p>
+    </div>
+  `;
+  if(hasPassword){
+    const doUnlock = async ()=>{
+      const pw = document.getElementById("lockPasswordInput").value;
+      if(!pw){ toast("請輸入密碼","error"); return; }
+      const hash = await hashPassword(pw, state.security.salt);
+      if(hash === state.security.hash){ sensitiveUnlocked = true; toast("已解鎖","success"); switchTab(tabId); }
+      else toast("密碼錯誤","error");
+    };
+    document.getElementById("unlockBtn").addEventListener("click", doUnlock);
+    document.getElementById("lockPasswordInput").addEventListener("keydown", (e)=>{ if(e.key==="Enter") doUnlock(); });
+  } else {
+    document.getElementById("setupPasswordBtn").addEventListener("click", async ()=>{
+      const p1 = document.getElementById("setupPasswordInput").value;
+      const p2 = document.getElementById("setupPasswordInput2").value;
+      if(!p1 || p1.length<4){ toast("密碼至少需 4 碼","error"); return; }
+      if(p1!==p2){ toast("兩次密碼輸入不一致","error"); return; }
+      const salt = randomSaltB64();
+      const hash = await hashPassword(p1, salt);
+      state.security = {hash, salt};
+      saveState();
+      sensitiveUnlocked = true;
+      toast("已設定店長密碼並解鎖","success");
+      switchTab(tabId);
+    });
+  }
 }
 document.getElementById("menuToggle").addEventListener("click", ()=> document.getElementById("sidebar").classList.toggle("open"));
 
@@ -1455,6 +1538,27 @@ function renderBackup(){
     </div>
 
     <div class="card card-pad mt16">
+      <div class="section-head"><h3>機密資料保護（店長密碼）</h3><span class="desc">保護「儀表板」「月結算薪資」「分潤規則」頁面，需輸入密碼才能檢視</span></div>
+      ${!CRYPTO_OK ? `<div class="note-box">此瀏覽器不支援密碼保護功能，請改用較新版本的 Chrome、Edge 或 Firefox。</div>` :
+        (state.security && state.security.hash ? `
+          <div class="info-box">已啟用密碼保護，員工開啟「儀表板」「月結算薪資」「分潤規則」時需輸入密碼。</div>
+          <div class="small-btn-row mt12">
+            <button class="btn btn-ghost" id="changePwBtn">變更密碼</button>
+            <button class="btn btn-danger" id="disablePwBtn">取消密碼保護</button>
+          </div>
+        ` : `
+          <div class="note-box">尚未設定，目前任何人都能檢視儀表板、月結算薪資與分潤規則資料。</div>
+          <div class="form-row mt12">
+            <div class="field"><label>設定新密碼（至少 4 碼）</label><input type="password" id="newPwInput1" autocomplete="off"></div>
+            <div class="field"><label>再次輸入</label><input type="password" id="newPwInput2" autocomplete="off"></div>
+          </div>
+          <button class="btn btn-accent btn-sm" id="setPwBtn">啟用密碼保護</button>
+        `)
+      }
+      <div class="faint mt12" style="line-height:1.6;">說明：此為畫面層級的保護，可避免同事於工作站上不小心看到營收與薪資資料；但因為本工具沒有伺服器，資料本身仍以未加密方式存放在瀏覽器中。若需要防止技術人員以瀏覽器開發者工具查看資料，需改用具備伺服器與帳號權限的系統。</div>
+    </div>
+
+    <div class="card card-pad mt16">
       <div class="section-head"><h3>資料備份與還原</h3><span class="desc">所有資料僅儲存在目前這台電腦、這個瀏覽器中，請定期備份</span></div>
       <div class="small-btn-row">
         <button class="btn btn-primary" id="exportJsonBtn">匯出備份檔（JSON）</button>
@@ -1505,6 +1609,8 @@ function renderBackup(){
           title:"匯入備份檔", message:"匯入將完全取代目前資料，確定要繼續嗎？", confirmText:"匯入並取代", danger:true,
           onConfirm(){
             state = data;
+            if(!state.security) state.security = {hash:null, salt:null};
+            sensitiveUnlocked = false;
             saveState();
             toast("已匯入備份資料","success");
             switchTab("dashboard");
@@ -1520,11 +1626,81 @@ function renderBackup(){
       title:"清空所有資料", message:"此動作將清除所有客戶、調理師、消費紀錄與設定，且無法復原。建議先匯出備份。確定要清空嗎？", confirmText:"清空所有資料", danger:true,
       onConfirm(){
         state = defaultState();
+        sensitiveUnlocked = false;
         saveState();
         toast("已重置為範例資料","success");
         switchTab("dashboard");
       }
     });
+  });
+
+  if(CRYPTO_OK){
+    const setPwBtn = document.getElementById("setPwBtn");
+    if(setPwBtn) setPwBtn.addEventListener("click", async ()=>{
+      const p1 = document.getElementById("newPwInput1").value;
+      const p2 = document.getElementById("newPwInput2").value;
+      if(!p1 || p1.length<4){ toast("密碼至少需 4 碼","error"); return; }
+      if(p1!==p2){ toast("兩次密碼輸入不一致","error"); return; }
+      const salt = randomSaltB64();
+      const hash = await hashPassword(p1, salt);
+      state.security = {hash, salt};
+      saveState();
+      toast("已啟用密碼保護","success");
+      renderBackup();
+    });
+    const changePwBtn = document.getElementById("changePwBtn");
+    if(changePwBtn) changePwBtn.addEventListener("click", openChangePasswordModal);
+    const disablePwBtn = document.getElementById("disablePwBtn");
+    if(disablePwBtn) disablePwBtn.addEventListener("click", openDisablePasswordModal);
+  }
+}
+function openChangePasswordModal(){
+  openModal({
+    title:"變更店長密碼",
+    bodyHTML:`
+      <div class="field"><label>目前密碼</label><input type="password" id="cpOld" autocomplete="off"></div>
+      <div class="field"><label>新密碼（至少 4 碼）</label><input type="password" id="cpNew1" autocomplete="off"></div>
+      <div class="field"><label>再次輸入新密碼</label><input type="password" id="cpNew2" autocomplete="off"></div>
+    `,
+    footHTML: `<button class="btn btn-ghost" data-close>取消</button><button class="btn btn-primary" id="cpSaveBtn">儲存新密碼</button>`,
+    onOpen(){
+      document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click", closeModal));
+      document.getElementById("cpSaveBtn").addEventListener("click", async ()=>{
+        const oldPw = document.getElementById("cpOld").value;
+        const n1 = document.getElementById("cpNew1").value;
+        const n2 = document.getElementById("cpNew2").value;
+        const oldHash = await hashPassword(oldPw, state.security.salt);
+        if(oldHash !== state.security.hash){ toast("目前密碼不正確","error"); return; }
+        if(!n1 || n1.length<4){ toast("新密碼至少需 4 碼","error"); return; }
+        if(n1!==n2){ toast("兩次新密碼輸入不一致","error"); return; }
+        const salt = randomSaltB64();
+        const hash = await hashPassword(n1, salt);
+        state.security = {hash, salt};
+        saveState();
+        closeModal();
+        toast("已變更密碼","success");
+      });
+    }
+  });
+}
+function openDisablePasswordModal(){
+  openModal({
+    title:"取消密碼保護",
+    bodyHTML:`<div class="note-box mb8">取消後，任何人都能檢視儀表板、月結算薪資與分潤規則頁面，請確認目前密碼。</div><div class="field"><label>目前密碼</label><input type="password" id="dpOld" autocomplete="off"></div>`,
+    footHTML: `<button class="btn btn-ghost" data-close>取消</button><button class="btn btn-danger" id="dpSaveBtn">確認取消保護</button>`,
+    onOpen(){
+      document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click", closeModal));
+      document.getElementById("dpSaveBtn").addEventListener("click", async ()=>{
+        const oldPw = document.getElementById("dpOld").value;
+        const oldHash = await hashPassword(oldPw, state.security.salt);
+        if(oldHash !== state.security.hash){ toast("密碼不正確","error"); return; }
+        state.security = {hash:null, salt:null};
+        saveState();
+        closeModal();
+        toast("已取消密碼保護","success");
+        if(activeTab==="backup") renderBackup();
+      });
+    }
   });
 }
 
