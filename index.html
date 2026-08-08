@@ -521,8 +521,8 @@ function defaultState(){
   items.forEach(it => { costs[it.id] = costMap[it.id] || 0; });
 
   const therapists = [
-    {id:"th_demo_a", name:"王大明（範例）", level:"A", phone:"", status:"active", joinDate:todayStr(), note:"示範資料，可編輯或刪除"},
-    {id:"th_demo_b", name:"李小華（範例）", level:"B", phone:"", status:"active", joinDate:todayStr(), note:"示範資料，可編輯或刪除"},
+    {id:"th_demo_a", name:"王大明（範例）", level:"A", phone:"", status:"active", joinDate:todayStr(), note:"示範資料，可編輯或刪除", pinHash:null, pinSalt:null},
+    {id:"th_demo_b", name:"李小華（範例）", level:"B", phone:"", status:"active", joinDate:todayStr(), note:"示範資料，可編輯或刪除", pinHash:null, pinSalt:null},
   ];
 
   const customers = [
@@ -583,6 +583,12 @@ function loadState(){
     if(parsed.security.question===undefined) parsed.security.question = "";
     if(parsed.security.qHash===undefined) parsed.security.qHash = null;
     if(parsed.security.qSalt===undefined) parsed.security.qSalt = null;
+    if(Array.isArray(parsed.therapists)){
+      parsed.therapists.forEach(t=>{
+        if(t.pinHash===undefined) t.pinHash = null;
+        if(t.pinSalt===undefined) t.pinSalt = null;
+      });
+    }
     return parsed;
   }catch(e){
     console.error("讀取本機資料失敗，改用預設範例資料", e);
@@ -657,6 +663,7 @@ function icon(name){
     percent:'<line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2"/><circle cx="17.5" cy="17.5" r="2"/>',
     calendar:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
     database:'<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
+    wallet:'<rect x="3" y="7" width="18" height="12" rx="2"/><path d="M3 10h18"/><circle cx="16" cy="14.5" r="1.2"/>',
     plus:'<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
     menu:'<line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/>',
   }[name] || "";
@@ -674,11 +681,13 @@ const TABS = [
   {id:"items", label:"項目與價目", icon:"tag"},
   {id:"commission", label:"分潤規則", icon:"percent"},
   {id:"settlement", label:"月結算薪資", icon:"calendar"},
+  {id:"mypay", label:"我的薪資查詢", icon:"wallet"},
   {id:"backup", label:"系統設定／備份", icon:"database"},
 ];
 let activeTab = "dashboard";
 const LOCKED_TABS = ["dashboard","settlement","commission"];
 let sensitiveUnlocked = false;
+let myPayTherapistId = null;
 
 function renderNav(){
   const nav = document.getElementById("navList");
@@ -697,9 +706,11 @@ const PAGE_META = {
   items:["項目與價目","服務／商品項目與價格設定"],
   commission:["分潤規則","調理量、枕頭銷售與其他項目的分潤設定"],
   settlement:["月結算薪資","依當月業績自動試算各調理師薪資"],
+  mypay:["我的薪資查詢","調理師本人可用個人 PIN 查詢自己的薪資，不會看到其他人資料"],
   backup:["系統設定／備份","工作室名稱、資料備份與還原"],
 };
 function switchTab(id){
+  if(activeTab === "mypay" && id !== "mypay"){ myPayTherapistId = null; }
   activeTab = id;
   renderNav();
   const [title, sub] = PAGE_META[id];
@@ -1488,10 +1499,10 @@ function renderTherapists(){
   document.getElementById("importThBtn").addEventListener("click", ()=> openImportModal("therapist"));
   const now = new Date(); const monthKey = now.toISOString().slice(0,7);
   el.innerHTML = `
-    <div class="note-box mb8">調理師的「等級」會決定一般客人調理服務的單價（於「項目與價目」頁面設定各等級費用）。</div>
+    <div class="note-box mb8">調理師的「等級」會決定一般客人調理服務的單價（於「項目與價目」頁面設定各等級費用）。可為每位調理師設定「查薪 PIN」，讓對方於「我的薪資查詢」頁面自行查看個人薪資，不會看到其他人資料。</div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>姓名</th><th>等級</th><th>電話</th><th>狀態</th><th>到職日</th><th class="num">本月調理次數</th><th class="num">本月薪資試算</th><th>備註</th><th>操作</th></tr></thead>
+        <thead><tr><th>姓名</th><th>等級</th><th>電話</th><th>狀態</th><th>到職日</th><th class="num">本月調理次數</th><th class="num">本月薪資試算</th><th>查薪PIN</th><th>備註</th><th>操作</th></tr></thead>
         <tbody>
           ${state.therapists.length? state.therapists.map(t=>{
             const s = computeTherapistSettlement(t.id, monthKey);
@@ -1503,13 +1514,15 @@ function renderTherapists(){
               <td>${escapeHtml(t.joinDate||'—')}</td>
               <td class="num mono">${fmtNum(s.treatmentCount)}</td>
               <td class="num mono">${fmtMoney(s.total)}</td>
+              <td><span class="pill ${t.pinHash?'pill-good':'pill-mute'}">${t.pinHash?'已設定':'未設定'}</span></td>
               <td class="faint">${escapeHtml(t.note||'')}</td>
               <td><div class="flex gap8">
+                <button class="icon-btn" data-action="set-therapist-pin" data-id="${t.id}" title="設定查薪PIN">🔑</button>
                 <button class="icon-btn" data-action="edit-therapist" data-id="${t.id}" title="編輯">✎</button>
                 <button class="icon-btn" data-action="delete-therapist" data-id="${t.id}" title="刪除">🗑</button>
               </div></td>
             </tr>`;
-          }).join("") : `<tr class="empty-row"><td colspan="9">尚無調理師資料，點右上角「新增調理師」開始建立</td></tr>`}
+          }).join("") : `<tr class="empty-row"><td colspan="10">尚無調理師資料，點右上角「新增調理師」開始建立</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -1558,6 +1571,67 @@ function deleteTherapist(id){
   confirmModal({
     title:"刪除調理師", message:"確定要刪除這位調理師嗎？歷史消費紀錄會保留姓名文字紀錄。", confirmText:"刪除", danger:true,
     onConfirm(){ state.therapists = state.therapists.filter(t=>t.id!==id); saveState(); toast("已刪除調理師","success"); renderTherapists(); }
+  });
+}
+function requireManagerPassword(actionLabel, callback){
+  if(!(state.security && state.security.hash)){ callback(); return; }
+  openModal({
+    title:"需要店長密碼",
+    bodyHTML:`<div class="field"><label>請輸入店長密碼以${escapeHtml(actionLabel)}</label><input type="password" id="rmpInput" autocomplete="off"></div>`,
+    footHTML:`<button class="btn btn-ghost" data-close>取消</button><button class="btn btn-primary" id="rmpBtn">確認</button>`,
+    onOpen(){
+      document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click", closeModal));
+      const doConfirm = async ()=>{
+        const pw = document.getElementById("rmpInput").value;
+        const hash = await hashPassword(pw, state.security.salt);
+        if(hash !== state.security.hash){ toast("密碼不正確","error"); return; }
+        closeModal();
+        callback();
+      };
+      document.getElementById("rmpBtn").addEventListener("click", doConfirm);
+      document.getElementById("rmpInput").addEventListener("keydown", (e)=>{ if(e.key==="Enter") doConfirm(); });
+    }
+  });
+}
+function openSetTherapistPinModal(t){
+  if(!CRYPTO_OK){ toast("此瀏覽器不支援此功能，請改用較新版本的 Chrome、Edge 或 Firefox","error"); return; }
+  openModal({
+    title: `設定「${t.name}」的查薪 PIN`,
+    bodyHTML: `
+      <div class="note-box mb8">設定後，此調理師可於「我的薪資查詢」頁面用姓名＋此 PIN 自行查看個人薪資，無法看到其他人資料或店內營收。</div>
+      <div class="field"><label>新 PIN（至少 4 碼，建議英數混合）</label><input type="password" id="thPin1" autocomplete="off"></div>
+      <div class="field"><label>再次輸入 PIN</label><input type="password" id="thPin2" autocomplete="off"></div>
+      ${t.pinHash ? `<div class="faint">目前已設定過 PIN，儲存後將取代舊 PIN。</div>` : ""}
+    `,
+    footHTML: `
+      ${t.pinHash ? `<button class="btn btn-danger" id="thPinClearBtn" style="margin-right:auto;">移除 PIN</button>` : ""}
+      <button class="btn btn-ghost" data-close>取消</button>
+      <button class="btn btn-primary" id="thPinSaveBtn">儲存 PIN</button>
+    `,
+    onOpen(){
+      document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click", closeModal));
+      document.getElementById("thPinSaveBtn").addEventListener("click", async ()=>{
+        const p1 = document.getElementById("thPin1").value;
+        const p2 = document.getElementById("thPin2").value;
+        if(!p1 || p1.length<4){ toast("PIN 至少需 4 碼","error"); return; }
+        if(p1!==p2){ toast("兩次輸入不一致","error"); return; }
+        const salt = randomSaltB64();
+        const hash = await hashPassword(p1, salt);
+        const idx = state.therapists.findIndex(x=>x.id===t.id);
+        if(idx<0){ toast("找不到此調理師","error"); return; }
+        state.therapists[idx].pinHash = hash;
+        state.therapists[idx].pinSalt = salt;
+        saveState(); closeModal(); toast("已設定查薪 PIN","success");
+        if(activeTab==="therapists") renderTherapists();
+      });
+      const clearBtn = document.getElementById("thPinClearBtn");
+      if(clearBtn) clearBtn.addEventListener("click", ()=>{
+        const idx = state.therapists.findIndex(x=>x.id===t.id);
+        if(idx>=0){ state.therapists[idx].pinHash=null; state.therapists[idx].pinSalt=null; saveState(); }
+        closeModal(); toast("已移除查薪 PIN","success");
+        if(activeTab==="therapists") renderTherapists();
+      });
+    }
   });
 }
 
@@ -1879,6 +1953,114 @@ function saveSettlementAll(){
 }
 
 /* =======================================================
+   12b. 我的薪資查詢（調理師本人專用，個人 PIN 驗證）
+   ======================================================= */
+let myPayMonth = new Date().toISOString().slice(0,7);
+function renderMyPay(){
+  const el = document.getElementById("panel-mypay");
+  document.getElementById("topbarActions").innerHTML = "";
+  if(!myPayTherapistId){
+    renderMyPayLogin(el);
+    return;
+  }
+  const th = byId(state.therapists, myPayTherapistId);
+  if(!th){ myPayTherapistId = null; renderMyPayLogin(el); return; }
+  document.getElementById("topbarActions").innerHTML = `<button class="btn btn-ghost" id="myPayLogoutBtn">登出</button>`;
+  renderMyPayDashboard(el, th);
+  document.getElementById("myPayLogoutBtn").addEventListener("click", ()=>{ myPayTherapistId = null; renderMyPay(); });
+}
+function renderMyPayLogin(el){
+  const options = state.therapists.filter(t=>t.status==="active").map(t=>`<option value="${t.id}">${escapeHtml(t.name)}</option>`).join("");
+  el.innerHTML = `
+    <div class="card card-pad" style="max-width:440px; margin:30px auto; text-align:center;">
+      <div style="font-size:32px; margin-bottom:6px;">🔑</div>
+      <h3>調理師個人薪資查詢</h3>
+      <p class="faint mt8" style="line-height:1.7;">請選擇您的姓名並輸入個人查薪 PIN，僅能查看您自己的薪資資料，無法看到其他調理師或店內營收資訊。</p>
+      <div class="field mt16" style="text-align:left;"><label>選擇姓名</label><select id="myPaySelect">${options || '<option value="">尚無在職調理師</option>'}</select></div>
+      <div class="field" style="text-align:left;"><label>個人 PIN</label><input type="password" id="myPayPinInput" autocomplete="off"></div>
+      <button class="btn btn-primary w-100 mt8" id="myPayLoginBtn">查詢我的薪資</button>
+      <p class="faint mt12" style="line-height:1.6;">尚未設定 PIN 嗎？請洽店長於「調理師管理」頁面為您設定。</p>
+    </div>
+  `;
+  if(!CRYPTO_OK){
+    el.innerHTML = `<div class="card card-pad" style="max-width:440px; margin:30px auto; text-align:center;"><div style="font-size:32px;">⚠️</div><h3 class="mt8">此瀏覽器不支援此功能</h3><p class="faint mt8">請改用較新版本的 Chrome、Edge 或 Firefox。</p></div>`;
+    return;
+  }
+  const doLogin = async ()=>{
+    const thId = document.getElementById("myPaySelect").value;
+    const pin = document.getElementById("myPayPinInput").value;
+    const th = byId(state.therapists, thId);
+    if(!th){ toast("請選擇姓名","error"); return; }
+    if(!th.pinHash){ toast("此調理師尚未設定查薪 PIN，請洽店長協助設定","error"); return; }
+    if(!pin){ toast("請輸入 PIN","error"); return; }
+    const hash = await hashPassword(pin, th.pinSalt);
+    if(hash !== th.pinHash){ toast("PIN 不正確","error"); return; }
+    myPayTherapistId = th.id;
+    toast("查詢成功","success");
+    renderMyPay();
+  };
+  document.getElementById("myPayLoginBtn").addEventListener("click", doLogin);
+  document.getElementById("myPayPinInput").addEventListener("keydown", (e)=>{ if(e.key==="Enter") doLogin(); });
+}
+function renderMyPayDashboard(el, th){
+  const s = computeTherapistSettlement(th.id, myPayMonth);
+  const months = [];
+  const base = new Date(myPayMonth+"-01");
+  for(let i=5;i>=0;i--){
+    const d = new Date(base.getFullYear(), base.getMonth()-i, 1);
+    const key = d.toISOString().slice(0,7);
+    months.push({key, label:`${d.getFullYear()}/${d.getMonth()+1}`, total: computeTherapistSettlement(th.id, key).total});
+  }
+  el.innerHTML = `
+    <div class="card card-pad">
+      <div class="flex justify-between items-center flex-wrap gap10">
+        <div>
+          <h3>${escapeHtml(th.name)} <span class="pill pill-${th.level}">${th.level} 級</span></h3>
+          <div class="faint mt8">僅顯示您個人的薪資資料，其他調理師與店內營收資訊不會顯示於此頁面。</div>
+        </div>
+        <div class="field" style="margin-bottom:0;"><label>查詢月份</label><input type="month" id="myPayMonthInput" value="${myPayMonth}"></div>
+      </div>
+    </div>
+    <div class="grid grid-4 mt16">
+      <div class="card stat-card"><div class="label">本月調理次數</div><div class="value">${fmtNum(s.treatmentCount)}</div></div>
+      <div class="card stat-card"><div class="label">調理金額</div><div class="value">${fmtMoney(s.treatmentRevenue)}</div><div class="hint">分潤比例 ${(s.rate*100).toFixed(0)}%</div></div>
+      <div class="card stat-card"><div class="label">枕頭銷售數量</div><div class="value">${fmtNum(s.pillowQty)}</div></div>
+      <div class="card stat-card"><span class="tag tag-good">本月薪資</span><div class="label">總薪資</div><div class="value">${fmtMoney(s.total)}</div></div>
+    </div>
+    <div class="card card-pad mt16">
+      <div class="section-head"><h3>薪資明細</h3></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>項目</th><th class="num">金額</th></tr></thead>
+          <tbody>
+            <tr><td>調理分潤（調理金額 × 分潤比例${s.suggestedTierBonus?' ＋ 級距獎金':''}）</td><td class="num mono">${fmtMoney(s.treatmentPay)}</td></tr>
+            <tr><td>枕頭銷售分潤</td><td class="num mono">${fmtMoney(s.pillowPay)}</td></tr>
+            <tr><td>其他項目分潤${s.otherDetail.length?`（${s.otherDetail.map(d=>d.itemName+'×'+d.qty).join('、')}）`:''}</td><td class="num mono">${fmtMoney(s.otherTotal)}</td></tr>
+            <tr><td>團隊獎金</td><td class="num mono">${fmtMoney(s.teamBonus)}</td></tr>
+            <tr><td style="font-weight:700;">總薪資</td><td class="num mono" style="font-weight:700;">${fmtMoney(s.total)}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card card-pad mt16">
+      <div class="section-head"><h3>近 6 個月薪資趨勢</h3></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>月份</th><th class="num">總薪資</th></tr></thead>
+          <tbody>
+            ${months.map(m=>`<tr><td>${m.label}</td><td class="num mono">${fmtMoney(m.total)}</td></tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+  document.getElementById("myPayMonthInput").addEventListener("change", (e)=>{
+    myPayMonth = e.target.value;
+    renderMyPayDashboard(el, th);
+  });
+}
+
+/* =======================================================
    13. 系統設定／備份
    ======================================================= */
 function renderBackup(){
@@ -2111,6 +2293,7 @@ document.addEventListener("click", (e)=>{
     case "add-therapist": openTherapistModal(null); break;
     case "edit-therapist": openTherapistModal(byId(state.therapists, id)); break;
     case "delete-therapist": deleteTherapist(id); break;
+    case "set-therapist-pin": requireManagerPassword("設定調理師查薪 PIN", ()=> openSetTherapistPinModal(byId(state.therapists, id))); break;
     case "add-item": openItemModal(null); break;
     case "edit-item": openItemModal(byId(state.items, id)); break;
     case "delete-item": deleteItem(id); break;
@@ -2128,6 +2311,7 @@ const RENDERERS = {
   items: renderItems,
   commission: renderCommission,
   settlement: renderSettlement,
+  mypay: renderMyPay,
   backup: renderBackup,
 };
 
