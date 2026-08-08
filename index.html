@@ -276,6 +276,7 @@ const STORAGE_KEY = "yh_studio_bookkeeping_v1";
 const CATEGORIES = ["服務","商品","其他","儲值"];
 const PAYMENTS = ["現金","匯款","LINE Pay","信用卡","儲值金","其他"];
 const CUSTOMER_TYPES = ["一般","選手"];
+const GENDERS = ["男","女","其他"];
 const LEVELS = ["A","B","C","D"];
 const MONTH_NAMES = ["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"];
 
@@ -312,6 +313,14 @@ function randomSaltB64(){
   return toB64(arr);
 }
 function normalizeAnswer(s){ return (s||"").trim().toLowerCase().replace(/\s+/g,""); }
+function clearFormFields(formId){
+  const form = document.getElementById(formId);
+  if(!form) return;
+  form.querySelectorAll("input[type=text], input[type=tel], input[type=number], input[type=date], input[type=password], textarea").forEach(el=>{ el.value=""; });
+  form.querySelectorAll("select").forEach(el=>{ el.selectedIndex = 0; });
+  const first = form.querySelector("input, select, textarea");
+  if(first) first.focus();
+}
 
 /* ---- Excel 範本下載／批次匯入 共用工具 ---- */
 function downloadXlsxTemplate(headers, sampleRow, filename, sheetName){
@@ -349,12 +358,17 @@ function pickField(row, keys){
 function mapImportedCustomerRow(row){
   const name = pickField(row, ["姓名","客戶姓名","Name","name"]);
   const code = pickField(row, ["編號","客戶編號","Code","code"]);
-  const phone = pickField(row, ["電話","手機","Phone","phone"]);
+  const phone = pickField(row, ["連絡電話","電話","手機","Phone","phone"]);
+  const gender = pickField(row, ["性別","Gender"]);
+  const occupation = pickField(row, ["工作","職業","Occupation"]);
+  const birthYear = pickField(row, ["出生西元年","出生年","西元年","Birth Year"]);
+  const birthDate = pickField(row, ["完整生日","生日","Birth Date","birthDate"]);
   let type = pickField(row, ["客戶類別(一般/選手)","客戶類別","類別","Type","type"]);
   type = (type === "選手") ? "選手" : "一般";
   const referrer = pickField(row, ["轉介人","介紹人","Referrer","referrer"]);
-  const note = pickField(row, ["備註","Note","note"]);
-  return {name, code, phone, type, referrer, note};
+  const pillowInfo = pickField(row, ["枕頭(高度/頭型)","枕頭","Pillow"]);
+  const note = pickField(row, ["備註(EX:孕婦,外國人…)","備註","Note","note"]);
+  return {name, code, phone, gender, occupation, birthYear, birthDate, type, referrer, pillowInfo, note};
 }
 function mapImportedTherapistRow(row){
   const name = pickField(row, ["姓名","調理師姓名","Name","name"]);
@@ -413,7 +427,7 @@ function openImportModal(kind){
 function renderImportPreview(valid, invalid, kind){
   const area = document.getElementById("importPreviewArea");
   const cols = kind==="customer"
-    ? [["姓名","name"],["編號","code"],["電話","phone"],["類別","type"],["轉介人","referrer"],["備註","note"]]
+    ? [["姓名","name"],["編號","code"],["電話","phone"],["性別","gender"],["工作","occupation"],["出生年","birthYear"],["生日","birthDate"],["類別","type"],["轉介人","referrer"],["枕頭","pillowInfo"],["備註","note"]]
     : [["姓名","name"],["等級","level"],["電話","phone"],["到職日","joinDate"],["狀態","status"],["備註","note"]];
   area.innerHTML = `
     <div class="mt12 flex gap10" style="flex-wrap:wrap;">
@@ -443,7 +457,8 @@ function commitImport(kind, rows){
     rows.forEach(r=>{
       const dup = state.customers.find(c=> c.name===r.name && (r.phone ? c.phone===r.phone : true));
       if(dup){ skipped++; return; }
-      state.customers.push({id:uid("cu"), name:r.name, code:r.code||"", phone:r.phone||"", type:r.type||"一般", referrer:r.referrer||"", note:r.note||""});
+      state.customers.push({id:uid("cu"), name:r.name, code:r.code||"", phone:r.phone||"", gender:r.gender||"", occupation:r.occupation||"",
+        birthYear:r.birthYear||"", birthDate:r.birthDate||"", type:r.type||"一般", referrer:r.referrer||"", pillowInfo:r.pillowInfo||"", note:r.note||""});
       added++;
     });
     saveState();
@@ -511,8 +526,8 @@ function defaultState(){
   ];
 
   const customers = [
-    {id:"cu_demo_1", code:"範例A000", name:"陳小姐（範例）", phone:"0900123456", type:"一般", referrer:"", note:"示範資料，可編輯或刪除"},
-    {id:"cu_demo_2", code:"範例B000", name:"林先生（範例，選手）", phone:"0900654321", type:"選手", referrer:"陳小姐（範例）", note:"示範資料，可編輯或刪除"},
+    {id:"cu_demo_1", code:"範例A000", name:"陳小姐（範例）", phone:"0900123456", gender:"女", occupation:"上班族", birthYear:"1990", birthDate:"", type:"一般", referrer:"", pillowInfo:"B7.5/平頭/前半", note:"示範資料，可編輯或刪除"},
+    {id:"cu_demo_2", code:"範例B000", name:"林先生（範例，選手）", phone:"0900654321", gender:"男", occupation:"運動員", birthYear:"1997", birthDate:"", type:"選手", referrer:"陳小姐（範例）", pillowInfo:"", note:"示範資料，可編輯或刪除"},
   ];
 
   const today = todayStr();
@@ -902,6 +917,28 @@ function computeTherapistSettlement(therapistId, monthKey){
   const total = treatmentPay + pillowPay + stats.otherTotal + teamBonus;
   return {...stats, rate, treatmentPay, pillowPay, teamBonus, total};
 }
+function calcAge(birthDate, birthYear){
+  const today = new Date();
+  if(birthDate){
+    const d = new Date(birthDate);
+    if(!isNaN(d.getTime())){
+      let age = today.getFullYear() - d.getFullYear();
+      const m = today.getMonth() - d.getMonth();
+      if(m < 0 || (m===0 && today.getDate() < d.getDate())) age--;
+      return {age, approx:false};
+    }
+  }
+  const y = Number(birthYear);
+  if(y && y > 1900 && y <= today.getFullYear()){
+    return {age: today.getFullYear()-y, approx:true};
+  }
+  return null;
+}
+function fmtAge(birthDate, birthYear){
+  const r = calcAge(birthDate, birthYear);
+  if(!r) return "—";
+  return r.approx ? `約 ${r.age} 歲` : `${r.age} 歲`;
+}
 function customerBalance(customerId){
   let bal = 0;
   state.transactions.forEach(t=>{
@@ -1288,8 +1325,8 @@ function renderCustomers(){
   `;
   document.getElementById("downloadCustTemplateBtn").addEventListener("click", ()=>{
     downloadXlsxTemplate(
-      ["姓名","編號","電話","客戶類別(一般/選手)","轉介人","備註"],
-      ["王小明","A001","0912345678","一般","陳小姐",""],
+      ["姓名","編號","連絡電話","性別","工作","出生西元年","完整生日(YYYY-MM-DD,選填)","客戶類別(一般/選手)","轉介人","枕頭(高度/頭型)","備註(EX:孕婦,外國人…)"],
+      ["王小明","A001","0900123456","男","運動員","1990","","一般","陳小姐","B7.5/平頭/前半",""],
       "客戶資料範本.xlsx", "客戶名單"
     );
   });
@@ -1307,26 +1344,30 @@ function renderCustomers(){
 }
 function renderCustomerTable(){
   const kw = customerKeyword.toLowerCase();
-  const list = state.customers.filter(c => !kw || [c.name,c.phone,c.code,c.referrer].join(" ").toLowerCase().includes(kw));
+  const list = state.customers.filter(c => !kw || [c.name,c.phone,c.code,c.referrer,c.occupation].join(" ").toLowerCase().includes(kw));
   document.getElementById("custTableWrap").innerHTML = `
     <div class="table-wrap mt12">
       <table>
-        <thead><tr><th>編號</th><th>姓名</th><th>電話</th><th>類別</th><th>轉介人</th><th class="num">儲值餘額</th><th>備註</th><th>操作</th></tr></thead>
+        <thead><tr><th>編號</th><th>姓名</th><th>連絡電話</th><th>性別</th><th>工作</th><th>年齡</th><th>轉介人</th><th>枕頭(高度/頭型)</th><th>類別</th><th class="num">儲值餘額</th><th>備註</th><th>操作</th></tr></thead>
         <tbody>
           ${list.length? list.map(c=>`
             <tr>
               <td>${escapeHtml(c.code||'—')}</td>
               <td>${escapeHtml(c.name)}</td>
               <td>${escapeHtml(c.phone||'—')}</td>
-              <td><span class="pill ${c.type==='選手'?'pill-good':'pill-mute'}">${escapeHtml(c.type)}</span></td>
+              <td>${escapeHtml(c.gender||'—')}</td>
+              <td>${escapeHtml(c.occupation||'—')}</td>
+              <td class="mono">${fmtAge(c.birthDate, c.birthYear)}</td>
               <td>${escapeHtml(c.referrer||'—')}</td>
+              <td>${escapeHtml(c.pillowInfo||'—')}</td>
+              <td><span class="pill ${c.type==='選手'?'pill-good':'pill-mute'}">${escapeHtml(c.type)}</span></td>
               <td class="num mono">${fmtMoney(customerBalance(c.id))}</td>
               <td class="faint">${escapeHtml(c.note||'')}</td>
               <td><div class="flex gap8">
                 <button class="icon-btn" data-action="edit-customer" data-id="${c.id}" title="編輯">✎</button>
                 <button class="icon-btn" data-action="delete-customer" data-id="${c.id}" title="刪除">🗑</button>
               </div></td>
-            </tr>`).join("") : `<tr class="empty-row"><td colspan="8">尚無客戶資料，點右上角「新增客戶」開始建立</td></tr>`}
+            </tr>`).join("") : `<tr class="empty-row"><td colspan="12">尚無客戶資料，點右上角「新增客戶」開始建立</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -1340,28 +1381,46 @@ function customerFormBody(c){
         <div class="field"><label>編號</label><input type="text" name="code" placeholder="例如 A001" value="${escapeHtml(c?c.code:'')}"></div>
       </div>
       <div class="form-row">
-        <div class="field"><label>電話</label><input type="tel" name="phone" value="${escapeHtml(c?c.phone:'')}"></div>
+        <div class="field"><label>連絡電話</label><input type="tel" name="phone" value="${escapeHtml(c?c.phone:'')}"></div>
+        <div class="field"><label>性別</label><select name="gender"><option value="">未填寫</option>${GENDERS.map(g=>`<option ${c&&c.gender===g?'selected':''}>${g}</option>`).join("")}</select></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>工作</label><input type="text" name="occupation" value="${escapeHtml(c?c.occupation:'')}"></div>
         <div class="field"><label>客戶類別</label><select name="type">${CUSTOMER_TYPES.map(t=>`<option ${c&&c.type===t?'selected':''}>${t}</option>`).join("")}</select></div>
       </div>
-      <div class="field"><label>轉介人</label><input type="text" name="referrer" value="${escapeHtml(c?c.referrer:'')}"></div>
-      <div class="field"><label>備註</label><textarea name="note">${escapeHtml(c?c.note:'')}</textarea></div>
+      <div class="form-row">
+        <div class="field"><label>出生西元年<span class="help">若不便提供完整生日，僅填年份即可估算年齡</span></label><input type="number" name="birthYear" min="1900" max="2100" placeholder="例如 1990" value="${c&&c.birthYear?c.birthYear:''}"></div>
+        <div class="field"><label>完整生日（選填，較精準）</label><input type="date" name="birthDate" value="${c&&c.birthDate?c.birthDate:''}"></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>轉介人</label><input type="text" name="referrer" value="${escapeHtml(c?c.referrer:'')}"></div>
+        <div class="field"><label>枕頭(高度/頭型)</label><input type="text" name="pillowInfo" placeholder="例如 B7.5/平頭/前半" value="${escapeHtml(c?c.pillowInfo:'')}"></div>
+      </div>
+      <div class="field"><label>備註</label><textarea name="note" placeholder="例如：孕婦、外國人…">${escapeHtml(c?c.note:'')}</textarea></div>
     </form>
   `;
 }
 function openCustomerModal(c){
   openModal({
     title: c?"編輯客戶":"新增客戶",
+    wide:true,
     bodyHTML: customerFormBody(c),
-    footHTML: `<button class="btn btn-ghost" data-close>取消</button><button class="btn btn-primary" id="custSaveBtn">${c?'儲存變更':'新增客戶'}</button>`,
+    footHTML: `<button class="btn btn-ghost" id="custClearBtn" type="button" style="margin-right:auto;">清空欄位</button><button class="btn btn-ghost" data-close>取消</button><button class="btn btn-primary" id="custSaveBtn">${c?'儲存變更':'新增客戶'}</button>`,
     onOpen(){
       document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click", closeModal));
+      document.getElementById("custClearBtn").addEventListener("click", ()=>{
+        clearFormFields("custForm");
+        toast("已清空欄位","info");
+      });
       document.getElementById("custSaveBtn").addEventListener("click", ()=>{
         const fd = new FormData(document.getElementById("custForm"));
         const name = (fd.get("name")||"").trim();
         if(!name){ toast("請輸入姓名","error"); return; }
         const record = {
           id: c?c.id:uid("cu"), name, code: fd.get("code")||"", phone: fd.get("phone")||"",
-          type: fd.get("type"), referrer: fd.get("referrer")||"", note: fd.get("note")||"",
+          gender: fd.get("gender")||"", occupation: fd.get("occupation")||"",
+          birthYear: fd.get("birthYear")||"", birthDate: fd.get("birthDate")||"",
+          type: fd.get("type"), referrer: fd.get("referrer")||"", pillowInfo: fd.get("pillowInfo")||"", note: fd.get("note")||"",
         };
         if(c){ const idx = state.customers.findIndex(x=>x.id===c.id); state.customers[idx]=record; }
         else state.customers.push(record);
@@ -1447,9 +1506,13 @@ function openTherapistModal(t){
   openModal({
     title: t?"編輯調理師":"新增調理師",
     bodyHTML: therapistFormBody(t),
-    footHTML: `<button class="btn btn-ghost" data-close>取消</button><button class="btn btn-primary" id="thSaveBtn">${t?'儲存變更':'新增調理師'}</button>`,
+    footHTML: `<button class="btn btn-ghost" id="thClearBtn" type="button" style="margin-right:auto;">清空欄位</button><button class="btn btn-ghost" data-close>取消</button><button class="btn btn-primary" id="thSaveBtn">${t?'儲存變更':'新增調理師'}</button>`,
     onOpen(){
       document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click", closeModal));
+      document.getElementById("thClearBtn").addEventListener("click", ()=>{
+        clearFormFields("thForm");
+        toast("已清空欄位","info");
+      });
       document.getElementById("thSaveBtn").addEventListener("click", ()=>{
         const fd = new FormData(document.getElementById("thForm"));
         const name = (fd.get("name")||"").trim();
