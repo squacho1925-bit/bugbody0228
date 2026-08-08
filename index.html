@@ -692,7 +692,7 @@ function renderNav(){
 const PAGE_META = {
   dashboard:["儀表板","營運概況一目了然"],
   transactions:["消費紀錄","記錄每一筆消費，自動依調理師等級試算單價"],
-  customers:["客戶管理","顧客資料與儲值餘額"],
+  customers:["客戶管理","顧客資料與消費偏好"],
   therapists:["調理師管理","設定調理師等級（決定調理費用）"],
   items:["項目與價目","服務／商品項目與價格設定"],
   commission:["分潤規則","調理量、枕頭銷售與其他項目的分潤設定"],
@@ -1348,7 +1348,7 @@ function renderCustomerTable(){
   document.getElementById("custTableWrap").innerHTML = `
     <div class="table-wrap mt12">
       <table>
-        <thead><tr><th>編號</th><th>姓名</th><th>連絡電話</th><th>性別</th><th>工作</th><th>年齡</th><th>轉介人</th><th>枕頭(高度/頭型)</th><th>類別</th><th class="num">儲值餘額</th><th>備註</th><th>操作</th></tr></thead>
+        <thead><tr><th>編號</th><th>姓名</th><th>連絡電話</th><th>性別</th><th>工作</th><th>年齡</th><th>轉介人</th><th>枕頭(高度/頭型)</th><th>類別</th><th>備註</th><th>操作</th></tr></thead>
         <tbody>
           ${list.length? list.map(c=>`
             <tr>
@@ -1361,13 +1361,12 @@ function renderCustomerTable(){
               <td>${escapeHtml(c.referrer||'—')}</td>
               <td>${escapeHtml(c.pillowInfo||'—')}</td>
               <td><span class="pill ${c.type==='選手'?'pill-good':'pill-mute'}">${escapeHtml(c.type)}</span></td>
-              <td class="num mono">${fmtMoney(customerBalance(c.id))}</td>
               <td class="faint">${escapeHtml(c.note||'')}</td>
               <td><div class="flex gap8">
                 <button class="icon-btn" data-action="edit-customer" data-id="${c.id}" title="編輯">✎</button>
                 <button class="icon-btn" data-action="delete-customer" data-id="${c.id}" title="刪除">🗑</button>
               </div></td>
-            </tr>`).join("") : `<tr class="empty-row"><td colspan="12">尚無客戶資料，點右上角「新增客戶」開始建立</td></tr>`}
+            </tr>`).join("") : `<tr class="empty-row"><td colspan="11">尚無客戶資料，點右上角「新增客戶」開始建立</td></tr>`}
         </tbody>
       </table>
     </div>
