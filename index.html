@@ -154,6 +154,7 @@ input[type=text], input[type=number], input[type=date], input[type=month], input
 }
 input:focus, select:focus, textarea:focus, button:focus-visible{outline:2px solid var(--accent); outline-offset:1px;}
 textarea{resize:vertical; min-height:60px;}
+input[type=file]{border:1px solid var(--border); border-radius:8px; padding:8px 10px; background:#fff; width:100%; font-size:13px;}
 .form-row{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
 @media (max-width:560px){.form-row{grid-template-columns:1fr;}}
 .check-row{display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ink-soft);}
@@ -263,6 +264,7 @@ textarea{resize:vertical; min-height:60px;}
 
 <div id="toastStack"></div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
 (function(){
 "use strict";
@@ -308,6 +310,156 @@ function randomSaltB64(){
   const arr = new Uint8Array(16);
   crypto.getRandomValues(arr);
   return toB64(arr);
+}
+function normalizeAnswer(s){ return (s||"").trim().toLowerCase().replace(/\s+/g,""); }
+
+/* ---- Excel 範本下載／批次匯入 共用工具 ---- */
+function downloadXlsxTemplate(headers, sampleRow, filename, sheetName){
+  if(typeof XLSX === "undefined"){ toast("目前無法使用 Excel 功能，請確認網路連線後重新整理頁面","error"); return; }
+  const wsData = [headers];
+  if(sampleRow) wsData.push(sampleRow);
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  ws['!cols'] = headers.map(()=>({wch:18}));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, sheetName || "工作表1");
+  XLSX.writeFile(wb, filename);
+}
+function readExcelFile(file){
+  return new Promise((resolve, reject)=>{
+    if(typeof XLSX === "undefined"){ reject(new Error("尚未載入 Excel 功能，請確認網路連線後重新整理頁面")); return; }
+    const reader = new FileReader();
+    reader.onload = (e)=>{
+      try{
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, {type:"array"});
+        const wsName = wb.SheetNames[0];
+        const ws = wb.Sheets[wsName];
+        const rows = XLSX.utils.sheet_to_json(ws, {defval:""});
+        resolve(rows);
+      }catch(err){ reject(err); }
+    };
+    reader.onerror = ()=> reject(new Error("讀取檔案失敗"));
+    reader.readAsArrayBuffer(file);
+  });
+}
+function pickField(row, keys){
+  for(const k of keys){ if(row[k]!==undefined && String(row[k]).trim()!=="") return String(row[k]).trim(); }
+  return "";
+}
+function mapImportedCustomerRow(row){
+  const name = pickField(row, ["姓名","客戶姓名","Name","name"]);
+  const code = pickField(row, ["編號","客戶編號","Code","code"]);
+  const phone = pickField(row, ["電話","手機","Phone","phone"]);
+  let type = pickField(row, ["客戶類別(一般/選手)","客戶類別","類別","Type","type"]);
+  type = (type === "選手") ? "選手" : "一般";
+  const referrer = pickField(row, ["轉介人","介紹人","Referrer","referrer"]);
+  const note = pickField(row, ["備註","Note","note"]);
+  return {name, code, phone, type, referrer, note};
+}
+function mapImportedTherapistRow(row){
+  const name = pickField(row, ["姓名","調理師姓名","Name","name"]);
+  let level = pickField(row, ["等級(A/B/C/D)","等級","Level","level"]).toUpperCase();
+  if(!LEVELS.includes(level)) level = "";
+  const phone = pickField(row, ["電話","手機","Phone","phone"]);
+  const joinDate = pickField(row, ["到職日(YYYY-MM-DD)","到職日","Join Date","joinDate"]);
+  const statusText = pickField(row, ["狀態(在職/停用)","狀態","Status","status"]);
+  const status = statusText === "停用" ? "inactive" : "active";
+  const note = pickField(row, ["備註","Note","note"]);
+  return {name, level, phone, joinDate, status, note};
+}
+function openImportModal(kind){
+  const label = kind === "customer" ? "客戶" : "調理師";
+  let parsedValid = [];
+  openModal({
+    title: `批次匯入${label}資料（Excel）`,
+    wide:true,
+    bodyHTML: `
+      <div class="note-box mb8">請先點選下方「下載空白範本」取得正確欄位格式，填寫完成後於此上傳（支援 .xlsx／.xls／.csv）。</div>
+      <div class="field"><label>選擇檔案</label><input type="file" id="importXlsxInput" accept=".xlsx,.xls,.csv"></div>
+      <div id="importPreviewArea"></div>
+    `,
+    footHTML: `<button class="btn btn-ghost" data-close>取消</button><button class="btn btn-primary hidden" id="importConfirmBtn">確認匯入</button>`,
+    onOpen(){
+      document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click", closeModal));
+      document.getElementById("importXlsxInput").addEventListener("change", async (e)=>{
+        const file = e.target.files[0];
+        if(!file) return;
+        try{
+          const rows = await readExcelFile(file);
+          const mapped = rows.map(r => kind==="customer" ? mapImportedCustomerRow(r) : mapImportedTherapistRow(r));
+          const valid = [], invalid = [];
+          mapped.forEach((m, idx)=>{
+            if(kind==="customer"){
+              if(m.name) valid.push(m); else invalid.push({idx:idx+2, reason:"缺少姓名"});
+            } else {
+              if(m.name && m.level) valid.push(m);
+              else invalid.push({idx:idx+2, reason: !m.name ? "缺少姓名" : "等級需為 A / B / C / D"});
+            }
+          });
+          parsedValid = valid;
+          renderImportPreview(valid, invalid, kind);
+          document.getElementById("importConfirmBtn").classList.toggle("hidden", valid.length===0);
+        }catch(err){
+          toast("讀取失敗："+err.message, "error");
+        }
+      });
+      document.getElementById("importConfirmBtn").addEventListener("click", ()=>{
+        commitImport(kind, parsedValid);
+        closeModal();
+      });
+    }
+  });
+}
+function renderImportPreview(valid, invalid, kind){
+  const area = document.getElementById("importPreviewArea");
+  const cols = kind==="customer"
+    ? [["姓名","name"],["編號","code"],["電話","phone"],["類別","type"],["轉介人","referrer"],["備註","note"]]
+    : [["姓名","name"],["等級","level"],["電話","phone"],["到職日","joinDate"],["狀態","status"],["備註","note"]];
+  area.innerHTML = `
+    <div class="mt12 flex gap10" style="flex-wrap:wrap;">
+      <span class="badge-count">可匯入 ${valid.length} 筆</span>
+      ${invalid.length ? `<span class="badge-count" style="background:var(--danger-soft); color:var(--danger);">${invalid.length} 筆有誤，將略過</span>` : ""}
+    </div>
+    <div class="table-wrap mt8" style="max-height:280px; overflow:auto;">
+      <table>
+        <thead><tr>${cols.map(c=>`<th>${c[0]}</th>`).join("")}</tr></thead>
+        <tbody>
+          ${valid.slice(0,50).map(r=>`<tr>${cols.map(c=>{
+            let v = r[c[1]];
+            if(c[1]==="status") v = (v==="inactive") ? "停用" : "在職";
+            return `<td>${escapeHtml(v||'')}</td>`;
+          }).join("")}</tr>`).join("") || `<tr class="empty-row"><td colspan="${cols.length}">沒有可匯入的資料</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+    ${valid.length>50 ? `<div class="faint mt8">僅預覽前 50 筆，確認匯入後會套用全部 ${valid.length} 筆</div>` : ""}
+    ${invalid.length ? `<div class="faint mt8">已略過（Excel 列號）：${invalid.slice(0,20).map(i=>`第${i.idx}列(${escapeHtml(i.reason)})`).join("、")}${invalid.length>20?" …":""}</div>` : ""}
+  `;
+}
+function commitImport(kind, rows){
+  if(rows.length===0){ toast("沒有可匯入的資料","error"); return; }
+  let added=0, skipped=0;
+  if(kind==="customer"){
+    rows.forEach(r=>{
+      const dup = state.customers.find(c=> c.name===r.name && (r.phone ? c.phone===r.phone : true));
+      if(dup){ skipped++; return; }
+      state.customers.push({id:uid("cu"), name:r.name, code:r.code||"", phone:r.phone||"", type:r.type||"一般", referrer:r.referrer||"", note:r.note||""});
+      added++;
+    });
+    saveState();
+    toast(`已匯入 ${added} 筆客戶${skipped?`，略過 ${skipped} 筆重複`:''}`, "success");
+    if(activeTab==="customers") renderCustomerTable();
+  } else {
+    rows.forEach(r=>{
+      const dup = state.therapists.find(t=> t.name===r.name);
+      if(dup){ skipped++; return; }
+      state.therapists.push({id:uid("th"), name:r.name, level:r.level, phone:r.phone||"", joinDate:r.joinDate||todayStr(), status:r.status||"active", note:r.note||""});
+      added++;
+    });
+    saveState();
+    toast(`已匯入 ${added} 筆調理師${skipped?`，略過 ${skipped} 筆重複`:''}`, "success");
+    if(activeTab==="therapists") renderTherapists();
+  }
 }
 
 /* =======================================================
@@ -397,7 +549,7 @@ function defaultState(){
     costs,
     transactions,
     settlements:{},
-    security:{hash:null, salt:null}
+    security:{hash:null, salt:null, hint:"", question:"", qHash:null, qSalt:null}
   };
 }
 
@@ -411,7 +563,11 @@ function loadState(){
     if(!parsed || !parsed.items) return defaultState();
     if(!parsed.meta) parsed.meta = {studioName:"悠活手調工作室", tagline:"NORMCORE"};
     if(!parsed.meta.tagline) parsed.meta.tagline = "NORMCORE";
-    if(!parsed.security) parsed.security = {hash:null, salt:null};
+    if(!parsed.security) parsed.security = {hash:null, salt:null, hint:"", question:"", qHash:null, qSalt:null};
+    if(parsed.security.hint===undefined) parsed.security.hint = "";
+    if(parsed.security.question===undefined) parsed.security.question = "";
+    if(parsed.security.qHash===undefined) parsed.security.qHash = null;
+    if(parsed.security.qSalt===undefined) parsed.security.qSalt = null;
     return parsed;
   }catch(e){
     console.error("讀取本機資料失敗，改用預設範例資料", e);
@@ -556,16 +712,22 @@ function renderLockScreen(tabId){
     return;
   }
   panel.innerHTML = `
-    <div class="card card-pad" style="max-width:420px; margin:40px auto; text-align:center;">
+    <div class="card card-pad" style="max-width:440px; margin:40px auto; text-align:center;">
       <div style="font-size:34px; margin-bottom:8px;">🔒</div>
       <h3>此頁僅限店長查看</h3>
       <p class="faint mt8" style="line-height:1.7;">${hasPassword ? '請輸入店長密碼以檢視營收、獲利與薪資等機密資料。' : '尚未設定店長密碼，請先設定密碼即可保護此頁及其他機密頁面。'}</p>
       ${hasPassword ? `
         <div class="field mt16" style="text-align:left;"><label>店長密碼</label><input type="password" id="lockPasswordInput" autocomplete="off"></div>
         <button class="btn btn-primary w-100 mt8" id="unlockBtn">解鎖檢視</button>
+        <button id="forgotToggleBtn" style="background:none;border:none;color:var(--ink-soft);text-decoration:underline;cursor:pointer;font-size:12.5px;margin-top:12px;">忘記密碼？</button>
+        <div id="forgotArea" class="hidden mt12" style="text-align:left;"></div>
       ` : `
         <div class="field mt16" style="text-align:left;"><label>設定新密碼（至少 4 碼）</label><input type="password" id="setupPasswordInput" autocomplete="off"></div>
         <div class="field" style="text-align:left;"><label>再次輸入密碼</label><input type="password" id="setupPasswordInput2" autocomplete="off"></div>
+        <div class="divider"></div>
+        <div class="field" style="text-align:left;"><label>密碼提示（選填）<span class="help">忘記密碼時會直接顯示給您看</span></label><input type="text" id="setupHintInput" placeholder="例如：我家貓咪的名字"></div>
+        <div class="field" style="text-align:left;"><label>救援問題（選填）<span class="help">忘記密碼時可回答此問題重設密碼</span></label><input type="text" id="setupQuestionInput" placeholder="例如：我小學的名稱？"></div>
+        <div class="field" style="text-align:left;"><label>救援問題答案</label><input type="text" id="setupAnswerInput" autocomplete="off"></div>
         <button class="btn btn-primary w-100 mt8" id="setupPasswordBtn">設定並解鎖</button>
       `}
       <p class="faint mt12" style="line-height:1.6;">提醒：此密碼可防止一般同事於畫面上瀏覽，但資料本身仍儲存在本機瀏覽器中。如需更高等級的保護，建議使用店長專用的電腦或帳號。</p>
@@ -581,19 +743,96 @@ function renderLockScreen(tabId){
     };
     document.getElementById("unlockBtn").addEventListener("click", doUnlock);
     document.getElementById("lockPasswordInput").addEventListener("keydown", (e)=>{ if(e.key==="Enter") doUnlock(); });
+    document.getElementById("forgotToggleBtn").addEventListener("click", ()=>{
+      const area = document.getElementById("forgotArea");
+      area.classList.toggle("hidden");
+      if(!area.classList.contains("hidden")) renderForgotArea(area, tabId);
+    });
   } else {
     document.getElementById("setupPasswordBtn").addEventListener("click", async ()=>{
       const p1 = document.getElementById("setupPasswordInput").value;
       const p2 = document.getElementById("setupPasswordInput2").value;
       if(!p1 || p1.length<4){ toast("密碼至少需 4 碼","error"); return; }
       if(p1!==p2){ toast("兩次密碼輸入不一致","error"); return; }
+      const hint = (document.getElementById("setupHintInput").value||"").trim();
+      const question = (document.getElementById("setupQuestionInput").value||"").trim();
+      const answer = document.getElementById("setupAnswerInput").value||"";
       const salt = randomSaltB64();
       const hash = await hashPassword(p1, salt);
-      state.security = {hash, salt};
+      let qHash = null, qSalt = null;
+      if(question && answer){
+        qSalt = randomSaltB64();
+        qHash = await hashPassword(normalizeAnswer(answer), qSalt);
+      }
+      state.security = {hash, salt, hint, question: question&&answer?question:"", qHash, qSalt};
       saveState();
       sensitiveUnlocked = true;
       toast("已設定店長密碼並解鎖","success");
       switchTab(tabId);
+    });
+  }
+}
+function renderForgotArea(area, tabId){
+  const sec = state.security;
+  const hasHint = !!(sec.hint && sec.hint.trim());
+  const hasQuestion = !!(sec.question && sec.qHash);
+  let html = `<div class="divider"></div>`;
+  if(hasHint){
+    html += `<div class="info-box mb8"><b>密碼提示：</b>${escapeHtml(sec.hint)}</div>`;
+  }
+  if(hasQuestion){
+    html += `
+      <div class="field"><label>救援問題：${escapeHtml(sec.question)}</label><input type="text" id="forgotAnswerInput" placeholder="請輸入答案" autocomplete="off"></div>
+      <button class="btn btn-ghost btn-sm" id="forgotVerifyBtn">驗證答案並重設密碼</button>
+      <div id="forgotResetArea" class="hidden mt12"></div>
+    `;
+  }
+  if(!hasHint && !hasQuestion){
+    html += `<div class="note-box">尚未設定密碼提示或救援問題，無法自動找回密碼。請洽詢原本設定密碼的人員協助，或於下方清空所有資料重新開始（將刪除所有客戶、消費紀錄與設定，且無法復原）。</div>
+      <button class="btn btn-danger btn-sm mt8" id="forgotResetAllBtn">清空所有資料並重新開始</button>`;
+  }
+  area.innerHTML = html;
+  if(hasQuestion){
+    document.getElementById("forgotVerifyBtn").addEventListener("click", async ()=>{
+      const ans = document.getElementById("forgotAnswerInput").value;
+      const hash = await hashPassword(normalizeAnswer(ans), sec.qSalt);
+      if(hash !== sec.qHash){ toast("答案不正確","error"); return; }
+      const resetArea = document.getElementById("forgotResetArea");
+      resetArea.classList.remove("hidden");
+      resetArea.innerHTML = `
+        <div class="info-box mb8">答案正確，請設定新密碼。</div>
+        <div class="field"><label>新密碼（至少 4 碼）</label><input type="password" id="newPwAfterAnswer1" autocomplete="off"></div>
+        <div class="field"><label>再次輸入新密碼</label><input type="password" id="newPwAfterAnswer2" autocomplete="off"></div>
+        <button class="btn btn-primary btn-sm" id="newPwAfterAnswerBtn">儲存新密碼並解鎖</button>
+      `;
+      document.getElementById("newPwAfterAnswerBtn").addEventListener("click", async ()=>{
+        const n1 = document.getElementById("newPwAfterAnswer1").value;
+        const n2 = document.getElementById("newPwAfterAnswer2").value;
+        if(!n1 || n1.length<4){ toast("密碼至少需 4 碼","error"); return; }
+        if(n1!==n2){ toast("兩次密碼輸入不一致","error"); return; }
+        const salt = randomSaltB64();
+        const hash = await hashPassword(n1, salt);
+        state.security.hash = hash;
+        state.security.salt = salt;
+        saveState();
+        sensitiveUnlocked = true;
+        toast("已重設密碼並解鎖","success");
+        switchTab(tabId);
+      });
+    });
+  }
+  if(!hasHint && !hasQuestion){
+    document.getElementById("forgotResetAllBtn").addEventListener("click", ()=>{
+      confirmModal({
+        title:"清空所有資料", message:"此動作將清除所有客戶、調理師、消費紀錄與設定，且無法復原。確定要清空嗎？", confirmText:"清空所有資料", danger:true,
+        onConfirm(){
+          state = defaultState();
+          sensitiveUnlocked = false;
+          saveState();
+          toast("已重置為範例資料","success");
+          switchTab("dashboard");
+        }
+      });
     });
   }
 }
@@ -1042,7 +1281,19 @@ function deleteTransaction(id){
 let customerKeyword = "";
 function renderCustomers(){
   const el = document.getElementById("panel-customers");
-  document.getElementById("topbarActions").innerHTML = `<button class="btn btn-primary" data-action="add-customer">${icon('plus')} 新增客戶</button>`;
+  document.getElementById("topbarActions").innerHTML = `
+    <button class="btn btn-ghost" id="downloadCustTemplateBtn">下載空白範本</button>
+    <button class="btn btn-ghost" id="importCustBtn">批次匯入 Excel</button>
+    <button class="btn btn-primary" data-action="add-customer">${icon('plus')} 新增客戶</button>
+  `;
+  document.getElementById("downloadCustTemplateBtn").addEventListener("click", ()=>{
+    downloadXlsxTemplate(
+      ["姓名","編號","電話","客戶類別(一般/選手)","轉介人","備註"],
+      ["王小明","A001","0912345678","一般","陳小姐",""],
+      "客戶資料範本.xlsx", "客戶名單"
+    );
+  });
+  document.getElementById("importCustBtn").addEventListener("click", ()=> openImportModal("customer"));
   el.innerHTML = `
     <div class="card card-pad">
       <div class="toolbar">
@@ -1134,7 +1385,19 @@ function deleteCustomer(id){
    ======================================================= */
 function renderTherapists(){
   const el = document.getElementById("panel-therapists");
-  document.getElementById("topbarActions").innerHTML = `<button class="btn btn-primary" data-action="add-therapist">${icon('plus')} 新增調理師</button>`;
+  document.getElementById("topbarActions").innerHTML = `
+    <button class="btn btn-ghost" id="downloadThTemplateBtn">下載空白範本</button>
+    <button class="btn btn-ghost" id="importThBtn">批次匯入 Excel</button>
+    <button class="btn btn-primary" data-action="add-therapist">${icon('plus')} 新增調理師</button>
+  `;
+  document.getElementById("downloadThTemplateBtn").addEventListener("click", ()=>{
+    downloadXlsxTemplate(
+      ["姓名","等級(A/B/C/D)","電話","到職日(YYYY-MM-DD)","狀態(在職/停用)","備註"],
+      ["王大明","A","0912345678", todayStr(), "在職",""],
+      "調理師資料範本.xlsx", "調理師名單"
+    );
+  });
+  document.getElementById("importThBtn").addEventListener("click", ()=> openImportModal("therapist"));
   const now = new Date(); const monthKey = now.toISOString().slice(0,7);
   el.innerHTML = `
     <div class="note-box mb8">調理師的「等級」會決定一般客人調理服務的單價（於「項目與價目」頁面設定各等級費用）。</div>
@@ -1541,9 +1804,11 @@ function renderBackup(){
       <div class="section-head"><h3>機密資料保護（店長密碼）</h3><span class="desc">保護「儀表板」「月結算薪資」「分潤規則」頁面，需輸入密碼才能檢視</span></div>
       ${!CRYPTO_OK ? `<div class="note-box">此瀏覽器不支援密碼保護功能，請改用較新版本的 Chrome、Edge 或 Firefox。</div>` :
         (state.security && state.security.hash ? `
-          <div class="info-box">已啟用密碼保護，員工開啟「儀表板」「月結算薪資」「分潤規則」時需輸入密碼。</div>
+          <div class="info-box">已啟用密碼保護，員工開啟「儀表板」「月結算薪資」「分潤規則」時需輸入密碼。<br>
+            密碼提示：${state.security.hint ? '已設定' : '未設定'}　／　救援問題：${state.security.question ? '已設定' : '未設定'}
+          </div>
           <div class="small-btn-row mt12">
-            <button class="btn btn-ghost" id="changePwBtn">變更密碼</button>
+            <button class="btn btn-ghost" id="changePwBtn">變更密碼／提示／救援問題</button>
             <button class="btn btn-danger" id="disablePwBtn">取消密碼保護</button>
           </div>
         ` : `
@@ -1551,6 +1816,11 @@ function renderBackup(){
           <div class="form-row mt12">
             <div class="field"><label>設定新密碼（至少 4 碼）</label><input type="password" id="newPwInput1" autocomplete="off"></div>
             <div class="field"><label>再次輸入</label><input type="password" id="newPwInput2" autocomplete="off"></div>
+          </div>
+          <div class="field"><label>密碼提示（選填）<span class="help">忘記密碼時會直接顯示給您看</span></label><input type="text" id="newPwHint" placeholder="例如：我家貓咪的名字"></div>
+          <div class="form-row">
+            <div class="field"><label>救援問題（選填）</label><input type="text" id="newPwQuestion" placeholder="例如：我小學的名稱？"></div>
+            <div class="field"><label>救援問題答案</label><input type="text" id="newPwAnswer" autocomplete="off"></div>
           </div>
           <button class="btn btn-accent btn-sm" id="setPwBtn">啟用密碼保護</button>
         `)
@@ -1641,9 +1911,17 @@ function renderBackup(){
       const p2 = document.getElementById("newPwInput2").value;
       if(!p1 || p1.length<4){ toast("密碼至少需 4 碼","error"); return; }
       if(p1!==p2){ toast("兩次密碼輸入不一致","error"); return; }
+      const hint = (document.getElementById("newPwHint").value||"").trim();
+      const question = (document.getElementById("newPwQuestion").value||"").trim();
+      const answer = document.getElementById("newPwAnswer").value||"";
       const salt = randomSaltB64();
       const hash = await hashPassword(p1, salt);
-      state.security = {hash, salt};
+      let qHash = null, qSalt = null;
+      if(question && answer){
+        qSalt = randomSaltB64();
+        qHash = await hashPassword(normalizeAnswer(answer), qSalt);
+      }
+      state.security = {hash, salt, hint, question: question&&answer?question:"", qHash, qSalt};
       saveState();
       toast("已啟用密碼保護","success");
       renderBackup();
@@ -1655,12 +1933,17 @@ function renderBackup(){
   }
 }
 function openChangePasswordModal(){
+  const sec = state.security;
   openModal({
     title:"變更店長密碼",
     bodyHTML:`
       <div class="field"><label>目前密碼</label><input type="password" id="cpOld" autocomplete="off"></div>
       <div class="field"><label>新密碼（至少 4 碼）</label><input type="password" id="cpNew1" autocomplete="off"></div>
       <div class="field"><label>再次輸入新密碼</label><input type="password" id="cpNew2" autocomplete="off"></div>
+      <div class="divider"></div>
+      <div class="field"><label>密碼提示（選填）</label><input type="text" id="cpHint" value="${escapeHtml(sec.hint||'')}"></div>
+      <div class="field"><label>救援問題（選填，留空表示不使用）</label><input type="text" id="cpQuestion" value="${escapeHtml(sec.question||'')}"></div>
+      <div class="field"><label>救援問題答案<span class="help">若要更換救援問題請重新輸入答案；若不更動問題可留空</span></label><input type="text" id="cpAnswer" autocomplete="off"></div>
     `,
     footHTML: `<button class="btn btn-ghost" data-close>取消</button><button class="btn btn-primary" id="cpSaveBtn">儲存新密碼</button>`,
     onOpen(){
@@ -1673,12 +1956,23 @@ function openChangePasswordModal(){
         if(oldHash !== state.security.hash){ toast("目前密碼不正確","error"); return; }
         if(!n1 || n1.length<4){ toast("新密碼至少需 4 碼","error"); return; }
         if(n1!==n2){ toast("兩次新密碼輸入不一致","error"); return; }
+        const hint = (document.getElementById("cpHint").value||"").trim();
+        const question = (document.getElementById("cpQuestion").value||"").trim();
+        const answer = document.getElementById("cpAnswer").value||"";
         const salt = randomSaltB64();
         const hash = await hashPassword(n1, salt);
-        state.security = {hash, salt};
+        let qHash = sec.qHash, qSalt = sec.qSalt;
+        if(question && answer){
+          qSalt = randomSaltB64();
+          qHash = await hashPassword(normalizeAnswer(answer), qSalt);
+        } else if(!question){
+          qHash = null; qSalt = null;
+        }
+        state.security = {hash, salt, hint, question: question||"", qHash, qSalt};
         saveState();
         closeModal();
         toast("已變更密碼","success");
+        if(activeTab==="backup") renderBackup();
       });
     }
   });
@@ -1694,7 +1988,7 @@ function openDisablePasswordModal(){
         const oldPw = document.getElementById("dpOld").value;
         const oldHash = await hashPassword(oldPw, state.security.salt);
         if(oldHash !== state.security.hash){ toast("密碼不正確","error"); return; }
-        state.security = {hash:null, salt:null};
+        state.security = {hash:null, salt:null, hint:"", question:"", qHash:null, qSalt:null};
         saveState();
         closeModal();
         toast("已取消密碼保護","success");
