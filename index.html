@@ -939,6 +939,27 @@ function fmtAge(birthDate, birthYear){
   if(!r) return "—";
   return r.approx ? `約 ${r.age} 歲` : `${r.age} 歲`;
 }
+function nextCustomerCode(){
+  let maxLetter = "A", maxNum = 0, found = false;
+  state.customers.forEach(c=>{
+    const m = (c.code||"").trim().match(/^([A-Za-z])(\d{3})$/);
+    if(!m) return;
+    found = true;
+    const letter = m[1].toUpperCase();
+    const num = parseInt(m[2], 10);
+    if(letter > maxLetter || (letter === maxLetter && num > maxNum)){
+      maxLetter = letter; maxNum = num;
+    }
+  });
+  if(!found) return "A001";
+  let nextNum = maxNum + 1;
+  let nextLetter = maxLetter;
+  if(nextNum > 999){
+    nextNum = 1;
+    nextLetter = String.fromCharCode(maxLetter.charCodeAt(0) + 1);
+  }
+  return nextLetter + String(nextNum).padStart(3, "0");
+}
 function customerBalance(customerId){
   let bal = 0;
   state.transactions.forEach(t=>{
@@ -1373,11 +1394,12 @@ function renderCustomerTable(){
   `;
 }
 function customerFormBody(c){
+  const codeVal = c ? c.code : nextCustomerCode();
   return `
     <form id="custForm">
       <div class="form-row">
         <div class="field"><label>姓名 *</label><input type="text" name="name" required value="${escapeHtml(c?c.name:'')}"></div>
-        <div class="field"><label>編號</label><input type="text" name="code" placeholder="例如 A001" value="${escapeHtml(c?c.code:'')}"></div>
+        <div class="field"><label>編號<span class="help">${c?'':'已自動帶入下一組流水號，可自行修改'}</span></label><input type="text" name="code" id="custCodeInput" placeholder="例如 A001" value="${escapeHtml(codeVal)}"></div>
       </div>
       <div class="form-row">
         <div class="field"><label>連絡電話</label><input type="tel" name="phone" value="${escapeHtml(c?c.phone:'')}"></div>
@@ -1388,8 +1410,8 @@ function customerFormBody(c){
         <div class="field"><label>客戶類別</label><select name="type">${CUSTOMER_TYPES.map(t=>`<option ${c&&c.type===t?'selected':''}>${t}</option>`).join("")}</select></div>
       </div>
       <div class="form-row">
-        <div class="field"><label>出生西元年<span class="help">若不便提供完整生日，僅填年份即可估算年齡</span></label><input type="number" name="birthYear" min="1900" max="2100" placeholder="例如 1990" value="${c&&c.birthYear?c.birthYear:''}"></div>
-        <div class="field"><label>完整生日（選填，較精準）</label><input type="date" name="birthDate" value="${c&&c.birthDate?c.birthDate:''}"></div>
+        <div class="field"><label>出生西元年<span class="help">若不便提供完整生日，僅填年份即可估算年齡</span></label><input type="number" name="birthYear" id="custBirthYearInput" min="1900" max="2100" placeholder="例如 1990" value="${c&&c.birthYear?c.birthYear:''}"></div>
+        <div class="field"><label>完整生日（選填，較精準）<span class="help">填寫後左側西元年會自動帶入</span></label><input type="date" name="birthDate" id="custBirthDateInput" value="${c&&c.birthDate?c.birthDate:''}"></div>
       </div>
       <div class="form-row">
         <div class="field"><label>轉介人</label><input type="text" name="referrer" value="${escapeHtml(c?c.referrer:'')}"></div>
@@ -1407,8 +1429,16 @@ function openCustomerModal(c){
     footHTML: `<button class="btn btn-ghost" id="custClearBtn" type="button" style="margin-right:auto;">清空欄位</button><button class="btn btn-ghost" data-close>取消</button><button class="btn btn-primary" id="custSaveBtn">${c?'儲存變更':'新增客戶'}</button>`,
     onOpen(){
       document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click", closeModal));
+      document.getElementById("custBirthDateInput").addEventListener("change", (e)=>{
+        const v = e.target.value;
+        if(v){
+          const year = v.slice(0,4);
+          if(year) document.getElementById("custBirthYearInput").value = Number(year);
+        }
+      });
       document.getElementById("custClearBtn").addEventListener("click", ()=>{
         clearFormFields("custForm");
+        if(!c) document.getElementById("custCodeInput").value = nextCustomerCode();
         toast("已清空欄位","info");
       });
       document.getElementById("custSaveBtn").addEventListener("click", ()=>{
