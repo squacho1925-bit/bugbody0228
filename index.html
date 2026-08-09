@@ -165,6 +165,13 @@ input[type=file]{border:1px solid var(--border); border-radius:8px; padding:8px 
 .toolbar .field.grow{flex:1; min-width:180px;}
 
 .search-input{position:relative;}
+.autocomplete-list{margin-top:4px; border:1px solid var(--border); border-radius:8px; background:#fff; max-height:220px; overflow-y:auto; box-shadow:var(--shadow-sm);}
+.autocomplete-item{padding:8px 10px; cursor:pointer; border-bottom:1px solid var(--border);}
+.autocomplete-item:last-child{border-bottom:none;}
+.autocomplete-item:hover{background:var(--surface-alt);}
+.autocomplete-item .ac-name{font-weight:600; color:var(--ink); font-size:13px;}
+.autocomplete-item .ac-meta{font-size:11.5px; color:var(--ink-soft); margin-top:2px;}
+.autocomplete-empty{padding:10px; font-size:12.5px; color:var(--ink-faint); text-align:center;}
 .badge-count{background:var(--accent-soft); color:var(--accent-dark); border-radius:20px; padding:2px 9px; font-size:11.5px; font-weight:700;}
 
 /* modal */
@@ -1057,7 +1064,7 @@ function renderDashboard(){
             ${recent.length? recent.map(t=>`
               <tr>
                 <td>${escapeHtml(t.date)}</td>
-                <td>${escapeHtml(t.customerName||'—')}</td>
+                <td>${escapeHtml(txCustomerLabel(t))}</td>
                 <td><span class="pill pill-service">${escapeHtml(t.itemName)}</span></td>
                 <td>${escapeHtml(t.therapistName||'未指定')}</td>
                 <td>${escapeHtml(t.payment||'—')}</td>
@@ -1150,7 +1157,7 @@ function renderTxTable(){
           ${pageItems.length? pageItems.map(t=>`
             <tr>
               <td>${escapeHtml(t.date)}</td>
-              <td>${escapeHtml(t.customerName||'—')}${t.itemId==="it_tiao" && t.customerType ? `<div class="faint">${t.customerType}</div>`:''}</td>
+              <td>${escapeHtml(txCustomerLabel(t))}${t.itemId==="it_tiao" && t.customerType ? `<div class="faint">${t.customerType}</div>`:''}</td>
               <td><span class="pill pill-mute">${escapeHtml(t.category)}</span></td>
               <td>${escapeHtml(t.itemName)}</td>
               <td>${escapeHtml(t.therapistName||'未指定')}</td>
@@ -1199,21 +1206,26 @@ function downloadCsv(filename, header, rows){
   URL.revokeObjectURL(url);
 }
 
-function txFormBody(tx){
-  const isEdit = !!tx;
+function txFormBody(tx, draft){
+  const d = tx || draft || {};
   const cats = CATEGORIES;
+  const custIdVal = d.customerId || "";
+  const custSearchVal = d.customerId ? formatCustomerLabel(byId(state.customers, d.customerId)) : (d.customerName||"");
   return `
     <form id="txForm">
       <div class="form-row">
-        <div class="field"><label>日期 *</label><input type="date" name="date" required value="${tx?tx.date:todayStr()}"></div>
-        <div class="field"><label>客戶</label>
-          <input type="text" name="customerName" list="customerDatalist" placeholder="輸入或選擇客戶（可留白＝現場客）" value="${escapeHtml(tx?tx.customerName:'')}">
-          <datalist id="customerDatalist">${state.customers.map(c=>`<option value="${escapeHtml(c.name)}">`).join("")}</datalist>
+        <div class="field"><label>日期 *</label><input type="date" name="date" id="txfDate" required value="${d.date?d.date:todayStr()}"></div>
+        <div class="field" style="position:relative;">
+          <label>客戶</label>
+          <input type="text" id="txfCustomerSearch" placeholder="輸入姓名／編號／電話搜尋，或直接輸入現場客姓名" autocomplete="off"
+            value="${escapeHtml(custSearchVal)}">
+          <input type="hidden" id="txfCustomerId" value="${escapeHtml(custIdVal)}">
+          <div id="txfCustomerResults" class="autocomplete-list hidden"></div>
         </div>
       </div>
       <div class="form-row">
         <div class="field"><label>類別 *</label>
-          <select name="category" id="txfCategory">${cats.map(c=>`<option ${tx&&tx.category===c?'selected':''}>${c}</option>`).join("")}</select>
+          <select name="category" id="txfCategory">${cats.map(c=>`<option ${d.category===c?'selected':''}>${c}</option>`).join("")}</select>
         </div>
         <div class="field"><label>項目 *</label>
           <select name="itemId" id="txfItem"></select>
@@ -1221,27 +1233,133 @@ function txFormBody(tx){
       </div>
       <div class="form-row">
         <div class="field" id="txfCustomerTypeWrap"><label>客戶類別（影響調理費）</label>
-          <select name="customerType" id="txfCustomerType">${CUSTOMER_TYPES.map(c=>`<option ${tx&&tx.customerType===c?'selected':''}>${c}</option>`).join("")}</select>
+          <select name="customerType" id="txfCustomerType">${CUSTOMER_TYPES.map(c=>`<option ${d.customerType===c?'selected':''}>${c}</option>`).join("")}</select>
         </div>
         <div class="field"><label>調理師</label>
-          <select name="therapistId" id="txfTherapist"><option value="">未指定</option>${state.therapists.map(t=>`<option value="${t.id}" ${tx&&tx.therapistId===t.id?'selected':''}>${escapeHtml(t.name)}（${t.level}級）</option>`).join("")}</select>
+          <select name="therapistId" id="txfTherapist"><option value="">未指定</option>${state.therapists.map(t=>`<option value="${t.id}" ${d.therapistId===t.id?'selected':''}>${escapeHtml(t.name)}（${t.level}級）</option>`).join("")}</select>
         </div>
       </div>
       <div class="form-row">
-        <div class="field"><label>數量 *</label><input type="number" name="qty" min="1" step="1" required value="${tx?tx.qty:1}" id="txfQty"></div>
-        <div class="field"><label>單價（可手動調整）</label><input type="number" name="unitPrice" min="0" step="1" value="${tx?tx.unitPrice:0}" id="txfUnitPrice"></div>
+        <div class="field"><label>數量 *</label><input type="number" name="qty" min="1" step="1" required value="${d.qty!==undefined?d.qty:1}" id="txfQty"></div>
+        <div class="field"><label>單價（可手動調整）</label><input type="number" name="unitPrice" min="0" step="1" value="${d.unitPrice!==undefined?d.unitPrice:0}" id="txfUnitPrice"></div>
       </div>
       <div class="form-row">
-        <div class="field"><label>折扣金額</label><input type="number" name="discount" min="0" step="1" value="${tx?tx.discount:0}" id="txfDiscount"></div>
-        <div class="field"><label>付款方式</label><select name="payment">${PAYMENTS.map(p=>`<option ${tx&&tx.payment===p?'selected':''}>${p}</option>`).join("")}</select></div>
+        <div class="field"><label>折扣金額</label><input type="number" name="discount" min="0" step="1" value="${d.discount!==undefined?d.discount:0}" id="txfDiscount"></div>
+        <div class="field"><label>付款方式</label><select name="payment" id="txfPayment">${PAYMENTS.map(p=>`<option ${d.payment===p?'selected':''}>${p}</option>`).join("")}</select></div>
       </div>
       <div class="field">
         <label>實收金額（自動計算＝單價×數量－折扣，可手動覆寫）</label>
-        <input type="number" name="amount" min="0" step="1" value="${tx?tx.amount:0}" id="txfAmount">
+        <input type="number" name="amount" min="0" step="1" value="${d.amount!==undefined?d.amount:0}" id="txfAmount">
       </div>
-      <div class="field"><label>備註</label><textarea name="note" placeholder="選填">${escapeHtml(tx?tx.note:'')}</textarea></div>
+      <div class="field"><label>備註</label><textarea name="note" id="txfNote" placeholder="選填">${escapeHtml(d.note||'')}</textarea></div>
     </form>
   `;
+}
+function txCustomerLabel(t){
+  if(t.customerId){
+    const c = byId(state.customers, t.customerId);
+    if(c) return (c.code ? c.code + " " : "") + c.name;
+  }
+  return t.customerName || "—";
+}
+function formatCustomerLabel(c){
+  if(!c) return "";
+  let label = c.name;
+  if(c.code) label = c.code + "  " + label;
+  if(c.phone) label += `（${c.phone}）`;
+  return label;
+}
+function searchCustomers(kw){
+  kw = (kw||"").trim().toLowerCase();
+  if(!kw) return state.customers.slice(0, 8);
+  return state.customers.filter(c =>
+    [c.code, c.name, c.phone].some(v => v && String(v).toLowerCase().includes(kw))
+  ).slice(0, 8);
+}
+function renderCustomerAutocomplete(kw){
+  const box = document.getElementById("txfCustomerResults");
+  const results = searchCustomers(kw);
+  const trimmed = (kw||"").trim();
+  if(results.length === 0){
+    if(trimmed){
+      box.innerHTML = `
+        <div class="autocomplete-empty" style="text-align:left; padding:12px;">
+          <div style="color:var(--danger); font-weight:700; margin-bottom:4px;">⚠️ 查無此客戶主檔資料</div>
+          <div class="faint" style="margin-bottom:10px;">找不到符合「${escapeHtml(trimmed)}」的客戶，建議先建立客戶主檔以利後續管理與追蹤。</div>
+          <button type="button" class="btn btn-accent btn-sm w-100" id="txfCreateCustomerBtn">＋ 前往新增客戶資料</button>
+          <div class="faint mt8" style="text-align:center;">或直接繼續，將以「${escapeHtml(trimmed)}」記錄為現場客</div>
+        </div>
+      `;
+      const createBtn = document.getElementById("txfCreateCustomerBtn");
+      if(createBtn) createBtn.addEventListener("mousedown", (e)=>{
+        e.preventDefault();
+        handleCreateCustomerFromTx(trimmed);
+      });
+    } else {
+      box.innerHTML = `<div class="autocomplete-empty">尚無客戶資料</div>`;
+    }
+  } else {
+    box.innerHTML = results.map(c => `
+      <div class="autocomplete-item" data-customer-id="${c.id}">
+        <div class="ac-name">${escapeHtml(c.code ? c.code + "　" : "")}${escapeHtml(c.name)}</div>
+        <div class="ac-meta">${escapeHtml([c.phone, c.type].filter(Boolean).join("　"))}</div>
+      </div>
+    `).join("");
+    box.querySelectorAll("[data-customer-id]").forEach(item=>{
+      item.addEventListener("mousedown", (e)=>{
+        e.preventDefault();
+        const c = byId(state.customers, item.dataset.customerId);
+        document.getElementById("txfCustomerSearch").value = formatCustomerLabel(c);
+        document.getElementById("txfCustomerId").value = c.id;
+        box.classList.add("hidden");
+      });
+    });
+  }
+  box.classList.remove("hidden");
+}
+function captureTxDraftFromForm(){
+  return {
+    date: document.getElementById("txfDate").value,
+    category: document.getElementById("txfCategory").value,
+    itemId: document.getElementById("txfItem").value,
+    customerType: document.getElementById("txfCustomerType") ? document.getElementById("txfCustomerType").value : "",
+    therapistId: document.getElementById("txfTherapist").value,
+    qty: Number(document.getElementById("txfQty").value)||1,
+    unitPrice: Number(document.getElementById("txfUnitPrice").value)||0,
+    discount: Number(document.getElementById("txfDiscount").value)||0,
+    amount: Number(document.getElementById("txfAmount").value)||0,
+    payment: document.getElementById("txfPayment").value,
+    note: document.getElementById("txfNote").value,
+  };
+}
+function handleCreateCustomerFromTx(typedName){
+  const draft = captureTxDraftFromForm();
+  closeModal();
+  openCustomerModal(null, {
+    prefillName: typedName,
+    onCreated(newCustomer){
+      openTransactionModal(null, {...draft, customerId:newCustomer.id, customerName:newCustomer.name});
+      toast(`已建立客戶「${newCustomer.name}」並帶回消費紀錄`, "success");
+    },
+    onCancel(){
+      openTransactionModal(null, {...draft, customerName:typedName});
+    }
+  });
+}
+function attachCustomerAutocomplete(){
+  const input = document.getElementById("txfCustomerSearch");
+  const hiddenId = document.getElementById("txfCustomerId");
+  const box = document.getElementById("txfCustomerResults");
+  input.addEventListener("input", ()=>{
+    hiddenId.value = "";
+    renderCustomerAutocomplete(input.value);
+  });
+  input.addEventListener("focus", ()=>{
+    renderCustomerAutocomplete(input.value);
+  });
+  input.addEventListener("blur", ()=>{
+    setTimeout(()=> box.classList.add("hidden"), 120);
+  });
 }
 function refreshTxItemOptions(selectedItemId){
   const cat = document.getElementById("txfCategory").value;
@@ -1270,13 +1388,15 @@ function updateAmountField(){
   const discount = Number(document.getElementById("txfDiscount").value)||0;
   document.getElementById("txfAmount").value = clamp0(unitPrice*qty - discount);
 }
-function openTransactionModal(tx){
+function openTransactionModal(tx, draft){
+  const d = tx || draft || null;
   openModal({
     title: tx ? "編輯消費紀錄" : "新增消費紀錄",
     wide:true,
-    bodyHTML: txFormBody(tx),
+    bodyHTML: txFormBody(tx, draft),
     footHTML: `<button class="btn btn-ghost" data-close>取消</button><button class="btn btn-primary" id="txSaveBtn">${tx?'儲存變更':'新增紀錄'}</button>`,
     onOpen(){
+      attachCustomerAutocomplete();
       document.getElementById("txfCategory").addEventListener("change", ()=>refreshTxItemOptions());
       document.getElementById("txfItem").addEventListener("change", ()=>{ toggleCustomerTypeVisibility(); recalcTxAmount(); });
       document.getElementById("txfTherapist").addEventListener("change", recalcTxAmount);
@@ -1284,8 +1404,8 @@ function openTransactionModal(tx){
       document.getElementById("txfQty").addEventListener("input", updateAmountField);
       document.getElementById("txfDiscount").addEventListener("input", updateAmountField);
       document.getElementById("txfUnitPrice").addEventListener("input", updateAmountField);
-      refreshTxItemOptions(tx?tx.itemId:undefined);
-      if(tx){ document.getElementById("txfUnitPrice").value = tx.unitPrice; document.getElementById("txfAmount").value = tx.amount; }
+      refreshTxItemOptions(d?d.itemId:undefined);
+      if(d){ document.getElementById("txfUnitPrice").value = d.unitPrice; document.getElementById("txfAmount").value = d.amount; }
       document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click", closeModal));
       document.getElementById("txSaveBtn").addEventListener("click", ()=> saveTransactionForm(tx));
     }
@@ -1299,10 +1419,13 @@ function saveTransactionForm(existing){
   const itemId = fd.get("itemId");
   const item = byId(state.items, itemId);
   if(!item){ toast("請選擇項目", "error"); return; }
-  const customerNameRaw = (fd.get("customerName")||"").trim();
-  let customerId = "", customerName = customerNameRaw;
-  const matched = state.customers.find(c=>c.name===customerNameRaw);
-  if(matched){ customerId = matched.id; customerName = matched.name; }
+  const customerId = document.getElementById("txfCustomerId").value || "";
+  const customerSearchVal = document.getElementById("txfCustomerSearch").value.trim();
+  let customerName = customerSearchVal;
+  if(customerId){
+    const matched = byId(state.customers, customerId);
+    if(matched) customerName = matched.name;
+  }
   const therapistId = fd.get("therapistId")||"";
   const therapist = byId(state.therapists, therapistId);
 
@@ -1432,13 +1555,22 @@ function customerFormBody(c){
     </form>
   `;
 }
-function openCustomerModal(c){
+function openCustomerModal(c, opts){
+  opts = opts || {};
+  let handled = false;
   openModal({
     title: c?"編輯客戶":"新增客戶",
     wide:true,
     bodyHTML: customerFormBody(c),
     footHTML: `<button class="btn btn-ghost" id="custClearBtn" type="button" style="margin-right:auto;">清空欄位</button><button class="btn btn-ghost" data-close>取消</button><button class="btn btn-primary" id="custSaveBtn">${c?'儲存變更':'新增客戶'}</button>`,
+    onClose(){
+      if(!handled && opts.onCancel) opts.onCancel();
+    },
     onOpen(){
+      if(opts.prefillName && !c){
+        const nameInput = document.querySelector('#custForm [name="name"]');
+        if(nameInput) nameInput.value = opts.prefillName;
+      }
       document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click", closeModal));
       document.getElementById("custBirthDateInput").addEventListener("change", (e)=>{
         const v = e.target.value;
@@ -1464,7 +1596,10 @@ function openCustomerModal(c){
         };
         if(c){ const idx = state.customers.findIndex(x=>x.id===c.id); state.customers[idx]=record; }
         else state.customers.push(record);
-        saveState(); closeModal(); toast(c?"已更新客戶資料":"已新增客戶","success"); renderCustomerTable();
+        handled = true;
+        saveState(); closeModal(); toast(c?"已更新客戶資料":"已新增客戶","success");
+        if(activeTab==="customers") renderCustomerTable();
+        if(opts.onCreated) opts.onCreated(record);
       });
     }
   });
