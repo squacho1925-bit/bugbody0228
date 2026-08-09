@@ -513,7 +513,7 @@ function openImportModal(kind){
 function renderImportPreview(valid, invalid, kind){
   const area = document.getElementById("importPreviewArea");
   const cols = kind==="customer"
-    ? [["姓名","name"],["編號","code"],["電話","phone"],["性別","gender"],["工作","occupation"],["出生年","birthYear"],["生日","birthDate"],["轉介人","referrer"],["枕頭","pillowInfo"],["備註","note"]]
+    ? [["編號","code"],["姓名","name"],["電話","phone"],["性別","gender"],["工作","occupation"],["出生年","birthYear"],["生日","birthDate"],["轉介人","referrer"],["枕頭","pillowInfo"],["備註","note"]]
     : kind==="therapist"
     ? [["姓名","name"],["等級","level"],["電話","phone"],["到職日","joinDate"],["狀態","status"],["備註","note"]]
     : [["日期","date"],["客戶","customerName"],["類別","category"],["項目","itemName"],["調理師","therapistName"],["數量","qty"],["單價","unitPrice"],["折扣","discount"],["金額","amount"],["付款","payment"]];
@@ -1077,8 +1077,9 @@ function toHalfWidth(str){
 function nextCustomerCode(){
   let maxLetter = "A", maxNum = 0, found = false;
   state.customers.forEach(c=>{
-    const code = toHalfWidth((c.code||"").trim());
-    const m = code.match(/^([A-Za-z])(\d{1,3})$/);
+    const raw = toHalfWidth((c.code||"")).trim();
+    // 寬鬆比對：允許字母與數字間有分隔符號（- _ 空白）、數字不限一定要補零
+    const m = raw.match(/^([A-Za-z])[\s\-_]{0,2}(\d{1,4})$/);
     if(!m) return;
     found = true;
     const letter = m[1].toUpperCase();
@@ -1615,8 +1616,8 @@ function renderCustomers(){
   `;
   document.getElementById("downloadCustTemplateBtn").addEventListener("click", ()=>{
     downloadXlsxTemplate(
-      ["姓名","編號","連絡電話","性別","工作","出生西元年","完整生日(YYYY-MM-DD,選填)","轉介人","枕頭(高度/頭型)","備註(EX:孕婦,外國人…)"],
-      ["王小明","A001","0900123456","男","運動員","1990","","陳小姐","B7.5/平頭/前半",""],
+      ["編號","姓名","連絡電話","性別","工作","出生西元年","完整生日(YYYY-MM-DD,選填)","轉介人","枕頭(高度/頭型)","備註(EX:孕婦,外國人…)"],
+      ["A001","王小明","0900123456","男","運動員","1990","","陳小姐","B7.5/平頭/前半",""],
       "客戶資料範本.xlsx", "客戶名單"
     );
   });
@@ -1679,8 +1680,8 @@ function customerFormBody(c){
   return `
     <form id="custForm">
       <div class="form-row">
-        <div class="field"><label>姓名 *</label><input type="text" name="name" required value="${escapeHtml(c?c.name:'')}"></div>
         <div class="field"><label>編號<span class="help">${c?'':'已自動帶入下一組流水號，可自行修改'}</span></label><input type="text" name="code" id="custCodeInput" placeholder="例如 A001" value="${escapeHtml(codeVal)}"></div>
+        <div class="field"><label>姓名 *</label><input type="text" name="name" required value="${escapeHtml(c?c.name:'')}"></div>
       </div>
       <div class="form-row">
         <div class="field"><label>連絡電話</label><input type="tel" name="phone" value="${escapeHtml(c?c.phone:'')}"></div>
