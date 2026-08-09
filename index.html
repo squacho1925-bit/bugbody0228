@@ -1055,7 +1055,12 @@ function calcAge(birthDate, birthYear){
 function fmtAge(birthDate, birthYear){
   const r = calcAge(birthDate, birthYear);
   if(!r) return "—";
-  return r.approx ? `約 ${r.age} 歲` : `${r.age} 歲`;
+  return `${r.age} 歲`;
+}
+function displayBirthYear(c){
+  if(c.birthYear) return String(c.birthYear);
+  if(c.birthDate) return c.birthDate.slice(0,4);
+  return "—";
 }
 function nextCustomerCode(){
   let maxLetter = "A", maxNum = 0, found = false;
@@ -1619,16 +1624,29 @@ function renderCustomerTable(){
   const list = state.customers.filter(c => !kw || [c.name,c.phone,c.code,c.referrer,c.occupation].join(" ").toLowerCase().includes(kw));
   document.getElementById("custTableWrap").innerHTML = `
     <div class="table-wrap mt12">
-      <table>
-        <thead><tr><th>編號</th><th>姓名</th><th>連絡電話</th><th>性別</th><th>工作</th><th>年齡</th><th>轉介人</th><th>枕頭(高度/頭型)</th><th>備註</th><th>操作</th></tr></thead>
+      <table style="table-layout:fixed;">
+        <thead><tr>
+          <th style="width:92px;">編號</th>
+          <th style="width:120px;">姓名</th>
+          <th style="width:128px;">連絡電話</th>
+          <th style="width:56px;">性別</th>
+          <th style="width:100px;">工作</th>
+          <th style="width:76px;">出生年</th>
+          <th style="width:68px;">年齡</th>
+          <th style="width:100px;">轉介人</th>
+          <th style="width:150px;">枕頭(高度/頭型)</th>
+          <th>備註</th>
+          <th style="width:84px;">操作</th>
+        </tr></thead>
         <tbody>
           ${list.length? list.map(c=>`
             <tr>
-              <td>${escapeHtml(c.code||'—')}</td>
+              <td class="mono">${escapeHtml(c.code||'—')}</td>
               <td>${escapeHtml(c.name)}</td>
-              <td>${escapeHtml(c.phone||'—')}</td>
+              <td class="mono">${escapeHtml(c.phone||'—')}</td>
               <td>${escapeHtml(c.gender||'—')}</td>
               <td>${escapeHtml(c.occupation||'—')}</td>
+              <td class="mono">${escapeHtml(displayBirthYear(c))}</td>
               <td class="mono">${fmtAge(c.birthDate, c.birthYear)}</td>
               <td>${escapeHtml(c.referrer||'—')}</td>
               <td>${escapeHtml(c.pillowInfo||'—')}</td>
@@ -1637,7 +1655,7 @@ function renderCustomerTable(){
                 <button class="icon-btn" data-action="edit-customer" data-id="${c.id}" title="編輯">✎</button>
                 <button class="icon-btn" data-action="delete-customer" data-id="${c.id}" title="刪除">🗑</button>
               </div></td>
-            </tr>`).join("") : `<tr class="empty-row"><td colspan="10">尚無客戶資料，點右上角「新增客戶」開始建立</td></tr>`}
+            </tr>`).join("") : `<tr class="empty-row"><td colspan="11">尚無客戶資料，點右上角「新增客戶」開始建立</td></tr>`}
         </tbody>
       </table>
     </div>
