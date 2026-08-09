@@ -1071,10 +1071,14 @@ function displayBirthYear(c){
   if(c.birthDate) return c.birthDate.slice(0,4);
   return "—";
 }
+function toHalfWidth(str){
+  return String(str).replace(/[Ａ-Ｚａ-ｚ０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
+}
 function nextCustomerCode(){
   let maxLetter = "A", maxNum = 0, found = false;
   state.customers.forEach(c=>{
-    const m = (c.code||"").trim().match(/^([A-Za-z])(\d{3})$/);
+    const code = toHalfWidth((c.code||"").trim());
+    const m = code.match(/^([A-Za-z])(\d{1,3})$/);
     if(!m) return;
     found = true;
     const letter = m[1].toUpperCase();
