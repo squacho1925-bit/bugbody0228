@@ -280,8 +280,8 @@ input[type=file]{border:1px solid var(--border); border-radius:8px; padding:8px 
    0. 常數與工具
    ======================================================= */
 const STORAGE_KEY = "yh_studio_bookkeeping_v1";
-const CATEGORIES = ["服務","商品","其他","儲值"];
-const PAYMENTS = ["現金","匯款","LINE Pay","信用卡","儲值金","其他"];
+const CATEGORIES = ["服務","商品","其他"];
+const PAYMENTS = ["現金","匯款","LINE Pay","信用卡","其他"];
 const CUSTOMER_TYPES = ["一般","選手"];
 const GENDERS = ["男","女","其他"];
 const LEVELS = ["A","B","C","D"];
@@ -347,7 +347,7 @@ function readExcelFile(file){
     reader.onload = (e)=>{
       try{
         const data = new Uint8Array(e.target.result);
-        const wb = XLSX.read(data, {type:"array"});
+        const wb = XLSX.read(data, {type:"array", cellDates:true});
         const wsName = wb.SheetNames[0];
         const ws = wb.Sheets[wsName];
         const rows = XLSX.utils.sheet_to_json(ws, {defval:""});
@@ -370,12 +370,10 @@ function mapImportedCustomerRow(row){
   const occupation = pickField(row, ["工作","職業","Occupation"]);
   const birthYear = pickField(row, ["出生西元年","出生年","西元年","Birth Year"]);
   const birthDate = pickField(row, ["完整生日","生日","Birth Date","birthDate"]);
-  let type = pickField(row, ["客戶類別(一般/選手)","客戶類別","類別","Type","type"]);
-  type = (type === "選手") ? "選手" : "一般";
   const referrer = pickField(row, ["轉介人","介紹人","Referrer","referrer"]);
   const pillowInfo = pickField(row, ["枕頭(高度/頭型)","枕頭","Pillow"]);
   const note = pickField(row, ["備註(EX:孕婦,外國人…)","備註","Note","note"]);
-  return {name, code, phone, gender, occupation, birthYear, birthDate, type, referrer, pillowInfo, note};
+  return {name, code, phone, gender, occupation, birthYear, birthDate, referrer, pillowInfo, note};
 }
 function mapImportedTherapistRow(row){
   const name = pickField(row, ["姓名","調理師姓名","Name","name"]);
@@ -388,8 +386,83 @@ function mapImportedTherapistRow(row){
   const note = pickField(row, ["備註","Note","note"]);
   return {name, level, phone, joinDate, status, note};
 }
+function parseImportDate(v){
+  if(v===undefined || v===null || v==="") return "";
+  if(v instanceof Date && !isNaN(v.getTime())){
+    const y=v.getFullYear(), m=String(v.getMonth()+1).padStart(2,'0'), d=String(v.getDate()).padStart(2,'0');
+    return `${y}-${m}-${d}`;
+  }
+  let s = String(v).trim().replace(/\//g,'-');
+  const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if(m) return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;
+  return "";
+}
+function findItemByNameCategory(category, name){
+  name = (name||"").trim().replace(/\s/g,"");
+  if(!name) return null;
+  let pool = state.items;
+  if(category) pool = pool.filter(i=>i.category===category);
+  return pool.find(i=> i.name.replace(/\s/g,"")===name) || null;
+}
+function findTherapistByName(name){
+  name = (name||"").trim();
+  if(!name) return null;
+  return state.therapists.find(t=>t.name===name) || null;
+}
+function findCustomerByCodeOrName(text){
+  text = (text||"").trim();
+  if(!text) return null;
+  return state.customers.find(c=>c.code && c.code===text) || state.customers.find(c=>c.name===text) || null;
+}
+function mapImportedTransactionRow(row){
+  const dateRaw = row["日期(YYYY-MM-DD)"] !== undefined ? row["日期(YYYY-MM-DD)"] : pickField(row, ["日期","Date","date"]);
+  const date = parseImportDate(dateRaw);
+  const categoryRaw = pickField(row, ["類別(服務/商品/其他)","類別","Category"]);
+  const category = CATEGORIES.includes(categoryRaw) ? categoryRaw : "";
+  const itemName = pickField(row, ["項目","Item","item"]);
+  const item = findItemByNameCategory(category, itemName);
+  const custText = pickField(row, ["客戶(姓名或編號，可留空＝現場客)","客戶(姓名或編號)","客戶","Customer"]);
+  const customer = findCustomerByCodeOrName(custText);
+  const therapistName = pickField(row, ["調理師","Therapist"]);
+  const therapist = findTherapistByName(therapistName);
+  let customerType = pickField(row, ["客戶類別(一般/選手，僅調理項目適用)","客戶類別","CustomerType"]);
+  customerType = customerType === "選手" ? "選手" : "一般";
+  const qty = Number(pickField(row, ["數量","Qty","qty"])) || 1;
+  let unitPriceRaw = pickField(row, ["單價(可留空由系統試算)","單價","UnitPrice"]);
+  let discount = Number(pickField(row, ["折扣","Discount"])) || 0;
+  let amountRaw = pickField(row, ["金額(可留空自動計算)","金額","Amount"]);
+  let payment = pickField(row, ["付款方式","Payment"]);
+  if(!PAYMENTS.includes(payment)) payment = "現金";
+  const note = pickField(row, ["備註","Note","note"]);
+
+  let reason = "";
+  if(!date) reason = "日期格式錯誤或空白";
+  else if(!category) reason = "類別需為「服務／商品／其他」其中之一";
+  else if(!item) reason = "找不到符合類別的項目名稱";
+  if(reason) return {ok:false, reason};
+
+  let unitPrice = unitPriceRaw==="" ? NaN : Number(unitPriceRaw);
+  if(isNaN(unitPrice)){
+    unitPrice = unitPriceFor(item.id, therapist?therapist.id:"", item.id==="it_tiao"?customerType:"");
+  }
+  let amount = amountRaw==="" ? NaN : Number(amountRaw);
+  if(isNaN(amount)){
+    amount = clamp0(unitPrice*qty - discount);
+  }
+
+  return {
+    ok:true,
+    date, category, itemId:item.id, itemName:item.name,
+    customerId: customer?customer.id:"", customerName: customer?customer.name:custText,
+    therapistId: therapist?therapist.id:"", therapistName: therapist?therapist.name:"",
+    customerType: item.id==="it_tiao" ? customerType : "",
+    qty, unitPrice, discount, amount, payment, note:note||"",
+    customerMatched: custText ? !!customer : true,
+    therapistMatched: therapistName ? !!therapist : true,
+  };
+}
 function openImportModal(kind){
-  const label = kind === "customer" ? "客戶" : "調理師";
+  const label = kind === "customer" ? "客戶" : (kind === "therapist" ? "調理師" : "消費紀錄");
   let parsedValid = [];
   openModal({
     title: `批次匯入${label}資料（Excel）`,
@@ -407,14 +480,20 @@ function openImportModal(kind){
         if(!file) return;
         try{
           const rows = await readExcelFile(file);
-          const mapped = rows.map(r => kind==="customer" ? mapImportedCustomerRow(r) : mapImportedTherapistRow(r));
+          const mapped = rows.map(r => {
+            if(kind==="customer") return mapImportedCustomerRow(r);
+            if(kind==="therapist") return mapImportedTherapistRow(r);
+            return mapImportedTransactionRow(r);
+          });
           const valid = [], invalid = [];
           mapped.forEach((m, idx)=>{
             if(kind==="customer"){
               if(m.name) valid.push(m); else invalid.push({idx:idx+2, reason:"缺少姓名"});
-            } else {
+            } else if(kind==="therapist"){
               if(m.name && m.level) valid.push(m);
               else invalid.push({idx:idx+2, reason: !m.name ? "缺少姓名" : "等級需為 A / B / C / D"});
+            } else {
+              if(m.ok) valid.push(m); else invalid.push({idx:idx+2, reason:m.reason});
             }
           });
           parsedValid = valid;
@@ -434,8 +513,15 @@ function openImportModal(kind){
 function renderImportPreview(valid, invalid, kind){
   const area = document.getElementById("importPreviewArea");
   const cols = kind==="customer"
-    ? [["姓名","name"],["編號","code"],["電話","phone"],["性別","gender"],["工作","occupation"],["出生年","birthYear"],["生日","birthDate"],["類別","type"],["轉介人","referrer"],["枕頭","pillowInfo"],["備註","note"]]
-    : [["姓名","name"],["等級","level"],["電話","phone"],["到職日","joinDate"],["狀態","status"],["備註","note"]];
+    ? [["姓名","name"],["編號","code"],["電話","phone"],["性別","gender"],["工作","occupation"],["出生年","birthYear"],["生日","birthDate"],["轉介人","referrer"],["枕頭","pillowInfo"],["備註","note"]]
+    : kind==="therapist"
+    ? [["姓名","name"],["等級","level"],["電話","phone"],["到職日","joinDate"],["狀態","status"],["備註","note"]]
+    : [["日期","date"],["客戶","customerName"],["類別","category"],["項目","itemName"],["調理師","therapistName"],["數量","qty"],["單價","unitPrice"],["折扣","discount"],["金額","amount"],["付款","payment"]];
+  let extraNote = "";
+  if(kind==="transaction"){
+    const custWarn = valid.filter(r=>!r.customerMatched).length;
+    if(custWarn) extraNote += `<div class="faint mt8">有 ${custWarn} 筆客戶未在主檔中比對到，將以文字方式記錄為現場客。</div>`;
+  }
   area.innerHTML = `
     <div class="mt12 flex gap10" style="flex-wrap:wrap;">
       <span class="badge-count">可匯入 ${valid.length} 筆</span>
@@ -448,6 +534,7 @@ function renderImportPreview(valid, invalid, kind){
           ${valid.slice(0,50).map(r=>`<tr>${cols.map(c=>{
             let v = r[c[1]];
             if(c[1]==="status") v = (v==="inactive") ? "停用" : "在職";
+            if(c[1]==="unitPrice" || c[1]==="amount" || c[1]==="discount") v = (v!==undefined && v!==null) ? fmtNum(v) : v;
             return `<td>${escapeHtml(v||'')}</td>`;
           }).join("")}</tr>`).join("") || `<tr class="empty-row"><td colspan="${cols.length}">沒有可匯入的資料</td></tr>`}
         </tbody>
@@ -455,6 +542,7 @@ function renderImportPreview(valid, invalid, kind){
     </div>
     ${valid.length>50 ? `<div class="faint mt8">僅預覽前 50 筆，確認匯入後會套用全部 ${valid.length} 筆</div>` : ""}
     ${invalid.length ? `<div class="faint mt8">已略過（Excel 列號）：${invalid.slice(0,20).map(i=>`第${i.idx}列(${escapeHtml(i.reason)})`).join("、")}${invalid.length>20?" …":""}</div>` : ""}
+    ${extraNote}
   `;
 }
 function commitImport(kind, rows){
@@ -465,13 +553,13 @@ function commitImport(kind, rows){
       const dup = state.customers.find(c=> c.name===r.name && (r.phone ? c.phone===r.phone : true));
       if(dup){ skipped++; return; }
       state.customers.push({id:uid("cu"), name:r.name, code:r.code||"", phone:r.phone||"", gender:r.gender||"", occupation:r.occupation||"",
-        birthYear:r.birthYear||"", birthDate:r.birthDate||"", type:r.type||"一般", referrer:r.referrer||"", pillowInfo:r.pillowInfo||"", note:r.note||""});
+        birthYear:r.birthYear||"", birthDate:r.birthDate||"", referrer:r.referrer||"", pillowInfo:r.pillowInfo||"", note:r.note||""});
       added++;
     });
     saveState();
     toast(`已匯入 ${added} 筆客戶${skipped?`，略過 ${skipped} 筆重複`:''}`, "success");
     if(activeTab==="customers") renderCustomerTable();
-  } else {
+  } else if(kind==="therapist"){
     rows.forEach(r=>{
       const dup = state.therapists.find(t=> t.name===r.name);
       if(dup){ skipped++; return; }
@@ -481,6 +569,20 @@ function commitImport(kind, rows){
     saveState();
     toast(`已匯入 ${added} 筆調理師${skipped?`，略過 ${skipped} 筆重複`:''}`, "success");
     if(activeTab==="therapists") renderTherapists();
+  } else {
+    rows.forEach(r=>{
+      state.transactions.push({
+        id: uid("tx"), date:r.date, customerId:r.customerId||"", customerName:r.customerName||"",
+        therapistId:r.therapistId||"", therapistName:r.therapistName||"",
+        category:r.category, itemId:r.itemId, itemName:r.itemName, customerType:r.customerType||"",
+        qty:r.qty, unitPrice:r.unitPrice, discount:r.discount, amount:r.amount, payment:r.payment, note:r.note||"",
+      });
+      added++;
+    });
+    saveState();
+    toast(`已匯入 ${added} 筆消費紀錄`, "success");
+    if(activeTab==="transactions") renderTxTable();
+    if(activeTab==="dashboard") renderDashboard();
   }
 }
 
@@ -513,13 +615,11 @@ function defaultState(){
     {id:"it_bed4", category:"商品", name:"加大雙人床", price:57600},
     {id:"it_event", category:"其他", name:"活動", price:1000},
     {id:"it_follow", category:"其他", name:"跟課", price:0},
-    {id:"it_deposit", category:"儲值", name:"儲值", price:0},
-    {id:"it_depositbonus", category:"儲值", name:"儲值(優惠贈送)", price:0},
   ];
   const otherRates = {};
   const rateMap = {it_tape:50,it_lotionS:200,it_lotionL:500,it_ballS:0,it_ballL:0,it_dolphin:150,it_u2:1490,it_u3:1990,
     it_agS:20,it_agL:150,it_agR:500,it_whale:150,it_tape2:0,it_oklotion:500,it_bed1:2000,it_bed2:2500,it_bed3:3000,
-    it_bed4:4000,it_teabox:100,it_lotionbox:300,it_follow:1000,it_event:0,it_deposit:0,it_depositbonus:0};
+    it_bed4:4000,it_teabox:100,it_lotionbox:300,it_follow:1000,it_event:0};
   items.forEach(it => { if(it.id !== "it_pillow" && it.id !== "it_tiao") otherRates[it.id] = rateMap[it.id] || 0; });
 
   const costs = {};
@@ -533,15 +633,15 @@ function defaultState(){
   ];
 
   const customers = [
-    {id:"cu_demo_1", code:"範例A000", name:"陳小姐（範例）", phone:"0900123456", gender:"女", occupation:"上班族", birthYear:"1990", birthDate:"", type:"一般", referrer:"", pillowInfo:"B7.5/平頭/前半", note:"示範資料，可編輯或刪除"},
-    {id:"cu_demo_2", code:"範例B000", name:"林先生（範例，選手）", phone:"0900654321", gender:"男", occupation:"運動員", birthYear:"1997", birthDate:"", type:"選手", referrer:"陳小姐（範例）", pillowInfo:"", note:"示範資料，可編輯或刪除"},
+    {id:"cu_demo_1", code:"範例A000", name:"陳小姐（範例）", phone:"0900123456", gender:"女", occupation:"上班族", birthYear:"1990", birthDate:"", referrer:"", pillowInfo:"B7.5/平頭/前半", note:"示範資料，可編輯或刪除"},
+    {id:"cu_demo_2", code:"範例B000", name:"林先生（範例）", phone:"0900654321", gender:"男", occupation:"運動員", birthYear:"1997", birthDate:"", referrer:"陳小姐（範例）", pillowInfo:"", note:"示範資料，可編輯或刪除"},
   ];
 
   const today = todayStr();
   const transactions = [
     {id:uid("tx"), date:today, customerId:"cu_demo_1", customerName:"陳小姐（範例）", therapistId:"th_demo_a", therapistName:"王大明（範例）",
       category:"服務", itemId:"it_tiao", itemName:"調理", customerType:"一般", qty:1, unitPrice:3000, discount:0, amount:3000, payment:"現金", note:"示範紀錄"},
-    {id:uid("tx"), date:today, customerId:"cu_demo_2", customerName:"林先生（範例，選手）", therapistId:"th_demo_b", therapistName:"李小華（範例）",
+    {id:uid("tx"), date:today, customerId:"cu_demo_2", customerName:"林先生（範例）", therapistId:"th_demo_b", therapistName:"李小華（範例）",
       category:"服務", itemId:"it_tiao", itemName:"調理", customerType:"選手", qty:1, unitPrice:1000, discount:0, amount:1000, payment:"匯款", note:"示範紀錄"},
     {id:uid("tx"), date:today, customerId:"cu_demo_1", customerName:"陳小姐（範例）", therapistId:"th_demo_a", therapistName:"王大明（範例）",
       category:"商品", itemId:"it_pillow", itemName:"枕頭", customerType:"", qty:1, unitPrice:3980, discount:0, amount:3980, payment:"現金", note:"示範紀錄"},
@@ -978,15 +1078,7 @@ function nextCustomerCode(){
   }
   return nextLetter + String(nextNum).padStart(3, "0");
 }
-function customerBalance(customerId){
-  let bal = 0;
-  state.transactions.forEach(t=>{
-    if(t.customerId !== customerId) return;
-    if(t.itemId === "it_deposit" || t.itemId === "it_depositbonus") bal += Number(t.amount)||0;
-    if(t.payment === "儲值金") bal -= Number(t.amount)||0;
-  });
-  return bal;
-}
+
 
 /* =======================================================
    6. Dashboard
@@ -1080,16 +1172,37 @@ function renderDashboard(){
 /* =======================================================
    7. 消費紀錄
    ======================================================= */
-let txFilters = {from:"", to:"", therapistId:"", category:"", keyword:""};
+function currentMonthRange(){
+  const d = new Date();
+  const y = d.getFullYear(), m = d.getMonth();
+  const from = `${y}-${String(m+1).padStart(2,'0')}-01`;
+  const lastDay = new Date(y, m+1, 0).getDate();
+  const to = `${y}-${String(m+1).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
+  return {from, to};
+}
+let txFilters = {...currentMonthRange(), therapistId:"", category:"", keyword:""};
 let txPage = 1;
 const TX_PAGE_SIZE = 25;
 
 function renderTransactions(){
   const el = document.getElementById("panel-transactions");
-  document.getElementById("topbarActions").innerHTML = `<button class="btn btn-primary" data-action="add-transaction">${icon('plus')} 新增消費紀錄</button>`;
+  document.getElementById("topbarActions").innerHTML = `
+    <button class="btn btn-ghost" id="downloadTxTemplateBtn">下載空白範本</button>
+    <button class="btn btn-ghost" id="importTxBtn">批次匯入 Excel</button>
+    <button class="btn btn-primary" data-action="add-transaction">${icon('plus')} 新增消費紀錄</button>
+  `;
+  document.getElementById("downloadTxTemplateBtn").addEventListener("click", ()=>{
+    downloadXlsxTemplate(
+      ["日期(YYYY-MM-DD)","客戶(姓名或編號，可留空＝現場客)","類別(服務/商品/其他)","項目","調理師","客戶類別(一般/選手，僅調理項目適用)","數量","單價(可留空由系統試算)","折扣","金額(可留空自動計算)","付款方式","備註"],
+      [todayStr(),"A001","服務","調理","王大明","一般",1,"","0","","現金",""],
+      "消費紀錄範本.xlsx", "消費紀錄"
+    );
+  });
+  document.getElementById("importTxBtn").addEventListener("click", ()=> openImportModal("transaction"));
 
   el.innerHTML = `
     <div class="card card-pad">
+      <div class="note-box mb8">預設僅顯示本月的消費紀錄，若要查詢先前月份，請調整下方「起始日期／結束日期」後查詢。</div>
       <div class="toolbar">
         <div class="field"><label>起始日期</label><input type="date" id="txFrom" value="${txFilters.from}"></div>
         <div class="field"><label>結束日期</label><input type="date" id="txTo" value="${txFilters.to}"></div>
@@ -1100,7 +1213,8 @@ function renderTransactions(){
           <select id="txCategory"><option value="">全部</option>${CATEGORIES.map(c=>`<option ${txFilters.category===c?'selected':''}>${c}</option>`).join("")}</select>
         </div>
         <div class="field grow"><label>搜尋（客戶／項目／備註）</label><input type="text" id="txKeyword" placeholder="輸入關鍵字…" value="${escapeHtml(txFilters.keyword)}"></div>
-        <button class="btn btn-ghost" id="txClearFilter">清除篩選</button>
+        <button class="btn btn-ghost" id="txBackToMonth">回到本月</button>
+        <button class="btn btn-ghost" id="txClearFilter">清除全部篩選（查全部）</button>
         <button class="btn btn-ghost" id="txExportCsv">匯出 CSV</button>
       </div>
       <div id="txTableWrap"></div>
@@ -1111,6 +1225,9 @@ function renderTransactions(){
   ["txFrom","txTo","txTherapist","txCategory","txKeyword"].forEach(id=>{
     document.getElementById(id).addEventListener("input", applyTxFilters);
     document.getElementById(id).addEventListener("change", applyTxFilters);
+  });
+  document.getElementById("txBackToMonth").addEventListener("click", ()=>{
+    txFilters = {...currentMonthRange(), therapistId:"", category:"", keyword:""}; txPage=1; renderTransactions();
   });
   document.getElementById("txClearFilter").addEventListener("click", ()=>{
     txFilters = {from:"", to:"", therapistId:"", category:"", keyword:""}; txPage=1; renderTransactions();
@@ -1302,7 +1419,7 @@ function renderCustomerAutocomplete(kw){
     box.innerHTML = results.map(c => `
       <div class="autocomplete-item" data-customer-id="${c.id}">
         <div class="ac-name">${escapeHtml(c.code ? c.code + "　" : "")}${escapeHtml(c.name)}</div>
-        <div class="ac-meta">${escapeHtml([c.phone, c.type].filter(Boolean).join("　"))}</div>
+        <div class="ac-meta">${escapeHtml(c.phone||'')}</div>
       </div>
     `).join("");
     box.querySelectorAll("[data-customer-id]").forEach(item=>{
@@ -1480,8 +1597,8 @@ function renderCustomers(){
   `;
   document.getElementById("downloadCustTemplateBtn").addEventListener("click", ()=>{
     downloadXlsxTemplate(
-      ["姓名","編號","連絡電話","性別","工作","出生西元年","完整生日(YYYY-MM-DD,選填)","客戶類別(一般/選手)","轉介人","枕頭(高度/頭型)","備註(EX:孕婦,外國人…)"],
-      ["王小明","A001","0900123456","男","運動員","1990","","一般","陳小姐","B7.5/平頭/前半",""],
+      ["姓名","編號","連絡電話","性別","工作","出生西元年","完整生日(YYYY-MM-DD,選填)","轉介人","枕頭(高度/頭型)","備註(EX:孕婦,外國人…)"],
+      ["王小明","A001","0900123456","男","運動員","1990","","陳小姐","B7.5/平頭/前半",""],
       "客戶資料範本.xlsx", "客戶名單"
     );
   });
@@ -1503,7 +1620,7 @@ function renderCustomerTable(){
   document.getElementById("custTableWrap").innerHTML = `
     <div class="table-wrap mt12">
       <table>
-        <thead><tr><th>編號</th><th>姓名</th><th>連絡電話</th><th>性別</th><th>工作</th><th>年齡</th><th>轉介人</th><th>枕頭(高度/頭型)</th><th>類別</th><th>備註</th><th>操作</th></tr></thead>
+        <thead><tr><th>編號</th><th>姓名</th><th>連絡電話</th><th>性別</th><th>工作</th><th>年齡</th><th>轉介人</th><th>枕頭(高度/頭型)</th><th>備註</th><th>操作</th></tr></thead>
         <tbody>
           ${list.length? list.map(c=>`
             <tr>
@@ -1515,13 +1632,12 @@ function renderCustomerTable(){
               <td class="mono">${fmtAge(c.birthDate, c.birthYear)}</td>
               <td>${escapeHtml(c.referrer||'—')}</td>
               <td>${escapeHtml(c.pillowInfo||'—')}</td>
-              <td><span class="pill ${c.type==='選手'?'pill-good':'pill-mute'}">${escapeHtml(c.type)}</span></td>
               <td class="faint">${escapeHtml(c.note||'')}</td>
               <td><div class="flex gap8">
                 <button class="icon-btn" data-action="edit-customer" data-id="${c.id}" title="編輯">✎</button>
                 <button class="icon-btn" data-action="delete-customer" data-id="${c.id}" title="刪除">🗑</button>
               </div></td>
-            </tr>`).join("") : `<tr class="empty-row"><td colspan="11">尚無客戶資料，點右上角「新增客戶」開始建立</td></tr>`}
+            </tr>`).join("") : `<tr class="empty-row"><td colspan="10">尚無客戶資料，點右上角「新增客戶」開始建立</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -1541,14 +1657,13 @@ function customerFormBody(c){
       </div>
       <div class="form-row">
         <div class="field"><label>工作</label><input type="text" name="occupation" value="${escapeHtml(c?c.occupation:'')}"></div>
-        <div class="field"><label>客戶類別</label><select name="type">${CUSTOMER_TYPES.map(t=>`<option ${c&&c.type===t?'selected':''}>${t}</option>`).join("")}</select></div>
-      </div>
-      <div class="form-row">
         <div class="field"><label>出生西元年<span class="help">若不便提供完整生日，僅填年份即可估算年齡</span></label><input type="number" name="birthYear" id="custBirthYearInput" min="1900" max="2100" placeholder="例如 1990" value="${c&&c.birthYear?c.birthYear:''}"></div>
-        <div class="field"><label>完整生日（選填，較精準）<span class="help">填寫後左側西元年會自動帶入</span></label><input type="date" name="birthDate" id="custBirthDateInput" value="${c&&c.birthDate?c.birthDate:''}"></div>
       </div>
       <div class="form-row">
+        <div class="field"><label>完整生日（選填，較精準）<span class="help">填寫後右側西元年會自動帶入</span></label><input type="date" name="birthDate" id="custBirthDateInput" value="${c&&c.birthDate?c.birthDate:''}"></div>
         <div class="field"><label>轉介人</label><input type="text" name="referrer" value="${escapeHtml(c?c.referrer:'')}"></div>
+      </div>
+      <div class="form-row">
         <div class="field"><label>枕頭(高度/頭型)</label><input type="text" name="pillowInfo" placeholder="例如 B7.5/平頭/前半" value="${escapeHtml(c?c.pillowInfo:'')}"></div>
       </div>
       <div class="field"><label>備註</label><textarea name="note" placeholder="例如：孕婦、外國人…">${escapeHtml(c?c.note:'')}</textarea></div>
@@ -1592,7 +1707,7 @@ function openCustomerModal(c, opts){
           id: c?c.id:uid("cu"), name, code: fd.get("code")||"", phone: fd.get("phone")||"",
           gender: fd.get("gender")||"", occupation: fd.get("occupation")||"",
           birthYear: fd.get("birthYear")||"", birthDate: fd.get("birthDate")||"",
-          type: fd.get("type"), referrer: fd.get("referrer")||"", pillowInfo: fd.get("pillowInfo")||"", note: fd.get("note")||"",
+          referrer: fd.get("referrer")||"", pillowInfo: fd.get("pillowInfo")||"", note: fd.get("note")||"",
         };
         if(c){ const idx = state.customers.findIndex(x=>x.id===c.id); state.customers[idx]=record; }
         else state.customers.push(record);
@@ -1783,7 +1898,7 @@ function renderItems(){
       <div class="mt12"><button class="btn btn-accent btn-sm" id="saveLevelFeeBtn">儲存等級價目</button></div>
     </div>
     <div class="card card-pad mt16">
-      <div class="section-head"><h3>服務／商品／其他／儲值項目</h3><span class="desc">「調理」項目價格由上方等級表決定，其餘項目可自訂單價</span></div>
+      <div class="section-head"><h3>服務／商品／其他項目</h3><span class="desc">「調理」項目價格由上方等級表決定，其餘項目可自訂單價</span></div>
       <div id="itemsTableWrap"></div>
     </div>
   `;
