@@ -991,6 +991,15 @@ function findTier(tiers, n){
 function monthTransactions(monthKey){
   return state.transactions.filter(t => monthKeyOf(t.date) === monthKey);
 }
+function therapistTreatmentBreakdown(therapistId, monthKey){
+  const txs = monthTransactions(monthKey).filter(t => t.therapistId === therapistId && t.itemId === "it_tiao");
+  let general = 0, athlete = 0;
+  txs.forEach(t=>{
+    const q = Number(t.qty)||0;
+    if(t.customerType === "選手") athlete += q; else general += q;
+  });
+  return {general, athlete, total: general+athlete};
+}
 function computeTherapistMonthStats(therapistId, monthKey){
   const txs = monthTransactions(monthKey).filter(t => t.therapistId === therapistId);
   const tiaoTx = txs.filter(t => t.itemId === "it_tiao");
@@ -1770,18 +1779,18 @@ function renderTherapists(){
     <div class="note-box mb8">調理師的「等級」會決定一般客人調理服務的單價（於「項目與價目」頁面設定各等級費用）。可為每位調理師設定「查薪 PIN」，讓對方於「我的薪資查詢」頁面自行查看個人薪資，不會看到其他人資料。</div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>姓名</th><th>等級</th><th>電話</th><th>狀態</th><th>到職日</th><th class="num">本月調理次數</th><th class="num">本月薪資試算</th><th>查薪PIN</th><th>備註</th><th>操作</th></tr></thead>
+        <thead><tr><th>姓名</th><th>等級</th><th>電話</th><th>狀態</th><th>到職日</th><th class="num">本月調理人數（一般）</th><th class="num">本月調理人數（選手）</th><th>查薪PIN</th><th>備註</th><th>操作</th></tr></thead>
         <tbody>
           ${state.therapists.length? state.therapists.map(t=>{
-            const s = computeTherapistSettlement(t.id, monthKey);
+            const b = therapistTreatmentBreakdown(t.id, monthKey);
             return `<tr>
               <td>${escapeHtml(t.name)}</td>
               <td><span class="pill pill-${t.level}">${t.level} 級</span></td>
               <td>${escapeHtml(t.phone||'—')}</td>
               <td><span class="pill ${t.status==='active'?'pill-good':'pill-mute'}">${t.status==='active'?'在職':'停用'}</span></td>
               <td>${escapeHtml(t.joinDate||'—')}</td>
-              <td class="num mono">${fmtNum(s.treatmentCount)}</td>
-              <td class="num mono">${fmtMoney(s.total)}</td>
+              <td class="num mono">${fmtNum(b.general)}</td>
+              <td class="num mono">${fmtNum(b.athlete)}</td>
               <td><span class="pill ${t.pinHash?'pill-good':'pill-mute'}">${t.pinHash?'已設定':'未設定'}</span></td>
               <td class="faint">${escapeHtml(t.note||'')}</td>
               <td><div class="flex gap8">
