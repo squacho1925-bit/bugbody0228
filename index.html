@@ -742,6 +742,12 @@ let firebaseListenerAttached = false;
 let applyingRemoteUpdate = false;
 let cloudPushTimer = null;
 let cloudConnecting = false;
+function withTimeout(promise, ms, message){
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(()=> reject(new Error(message||"連線逾時，請確認網路或 Firebase 設定")), ms))
+  ]);
+}
 
 function scheduleCloudPush(){
   if(cloudPushTimer) clearTimeout(cloudPushTimer);
@@ -779,10 +785,17 @@ async function cloudConnect(configText, syncCode){
     if(typeof firebase === "undefined") throw new Error("Firebase 函式庫載入失敗，請確認網路連線後重新整理頁面再試");
     if(firebaseApp){ try{ firebaseApp.delete(); }catch(e){} firebaseApp=null; firebaseDbRef=null; firebaseListenerAttached=false; }
     firebaseApp = firebase.initializeApp(config, "studioApp_"+Date.now());
-    await firebaseApp.auth().signInAnonymously();
+    try{
+      await withTimeout(firebaseApp.auth().signInAnonymously(), 12000, "登入逾時：請確認 Firebase 主控台的 Authentication → Sign-in method 已啟用「匿名 Anonymous」，並確認網路連線正常");
+    }catch(authErr){
+      if(authErr && authErr.code === "auth/admin-restricted-operation"){
+        throw new Error("尚未啟用匿名登入，請到 Firebase 主控台「Authentication → Sign-in method」開啟「匿名 Anonymous」後再試一次");
+      }
+      throw authErr;
+    }
     firebaseDbRef = firebaseApp.database().ref("studios/" + syncCode);
 
-    const snap = await firebaseDbRef.once("value");
+    const snap = await withTimeout(firebaseDbRef.once("value"), 12000, "讀取雲端資料逾時，請確認 databaseURL 是否正確、Realtime Database 是否已建立");
     const remote = snap.val();
 
     const finish = ()=>{
@@ -2730,7 +2743,7 @@ function cloudSyncSectionHTML(){
         <li>建立完成、進入專案畫面後，點左側選單「建構 Build」→「Realtime Database」→「建立資料庫 Create Database」，地區隨選，安全性規則先選「測試模式 Test mode」→ 啟用</li>
         <li><b>重要，容易漏掉：</b>左側選單「建構 Build」→「Authentication」→「開始使用 Get started」→上方分頁選「Sign-in method」→ 找到清單裡的「匿名 Anonymous」→ 點進去打開「啟用 Enable」開關 → 儲存。（這一步沒做，等一下按「連線」會失敗）</li>
         <li>點左上角齒輪 ⚙ →「專案設定 Project settings」→ 頁面下方「你的應用程式 Your apps」找不到應用程式的話，點 &lt;/&gt;（網頁）圖示新增一個，取個名字（例如 web）即可，不需要勾選 Firebase Hosting，一路「下一步」到完成</li>
-        <li>應用程式建立後，畫面會顯示一段 <span class="mono">const firebaseConfig = {'{'}...{'}'}</span> 程式碼，整段選取複製；之後想再找這段設定，可以到「專案設定」一般頁籤下方「你的應用程式」，點你的網頁應用程式，選「設定 Config」</li>
+        <li>應用程式建立後，畫面會顯示一段 <span class="mono">const firebaseConfig = { ... }</span> 程式碼，整段選取複製；之後想再找這段設定，可以到「專案設定」一般頁籤下方「你的應用程式」，點你的網頁應用程式，選「設定 Config」</li>
         <li><b>重要，容易漏掉：</b>這段程式碼通常不會自動包含 <span class="mono">databaseURL</span> 這一行。請另外到左側選單「Realtime Database」頁面，畫面最上方會顯示一個網址（例如 <span class="mono">https://你的專案id-default-rtdb.地區.firebasedatabase.app</span>），複製它，手動貼到 firebaseConfig 裡加一行 <span class="mono">databaseURL: "貼在這裡",</span>（前後留意要有逗號跟雙引號）</li>
         <li>回到這裡，把整段（含手動加上 databaseURL 之後）貼到下方「Firebase 設定」欄位</li>
         <li>自訂一組「同步代碼」（例如店名縮寫＋隨機數字，不要用太簡單的字），所有裝置都要輸入完全相同的代碼才能同步到一起</li>
@@ -2776,10 +2789,23 @@ function cloudSyncSectionHTML(){
 }
 function wireCloudSyncSection(){
   const connectBtn = document.getElementById("cloudConnectBtn");
-  if(connectBtn) connectBtn.addEventListener("click", ()=>{
+  if(connectBtn) connectBtn.addEventListener("click", async ()=>{
     const configText = document.getElementById("cloudConfigInput").value;
     const syncCode = document.getElementById("cloudSyncCodeInput").value;
-    cloudConnect(configText, syncCode);
+    if(!configText || !configText.trim()){ toast("請先貼上 Firebase 設定","error"); return; }
+    if(!syncCode || !syncCode.trim()){ toast("請先輸入同步代碼","error"); return; }
+    const originalLabel = connectBtn.textContent;
+    connectBtn.disabled = true;
+    connectBtn.textContent = "連線中…請稍候";
+    toast("開始連線，請稍候（首次連線可能需要幾秒）","info");
+    try{
+      await cloudConnect(configText, syncCode);
+    } finally {
+      if(document.body.contains(connectBtn)){
+        connectBtn.disabled = false;
+        connectBtn.textContent = originalLabel;
+      }
+    }
   });
   const disconnectBtn = document.getElementById("cloudDisconnectBtn");
   if(disconnectBtn) disconnectBtn.addEventListener("click", ()=>{
