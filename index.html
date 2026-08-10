@@ -26,8 +26,8 @@
   --success:#3E7A55;
   --success-soft:#DDEEE2;
   --border:#E3DCC9;
-  --shadow-sm:0 1px 3px rgba(35,58,49,.08);
-  --shadow-md:0 8px 24px rgba(35,58,49,.14);
+  --shadow-sm:0 2px 6px rgba(35,58,49,.07);
+  --shadow-md:0 10px 28px rgba(35,58,49,.16);
   --radius:12px;
   --radius-sm:8px;
   --font-display:'Noto Serif TC', serif;
@@ -65,7 +65,7 @@ nav.navlist{padding:14px 10px; flex:1;}
 }
 .navlist button svg{flex-shrink:0; opacity:.85;}
 .navlist button:hover{background:rgba(239,233,218,.08); color:#fff;}
-.navlist button.active{background:var(--accent); color:var(--primary-dark); font-weight:700;}
+.navlist button.active{background:var(--accent); color:var(--primary-dark); font-weight:700; box-shadow:0 2px 8px rgba(0,0,0,.18);}
 .navlist button.active svg{opacity:1;}
 .sidebar-foot{padding:14px 18px 20px; font-size:11px; color:#8FA096; border-top:1px solid rgba(239,233,218,.12);}
 
@@ -73,6 +73,7 @@ nav.navlist{padding:14px 10px; flex:1;}
 #topbar{
   position:sticky; top:0; z-index:20; background:rgba(246,243,236,.9); backdrop-filter:blur(6px);
   border-bottom:1px solid var(--border); padding:16px 28px; display:flex; align-items:center; justify-content:space-between; gap:12px;
+  box-shadow:0 1px 0 rgba(189,138,63,.35);
 }
 #topbar h2{font-size:21px;}
 #topbar .sub{font-size:12.5px; color:var(--ink-soft); margin-top:2px;}
@@ -82,16 +83,18 @@ nav.navlist{padding:14px 10px; flex:1;}
 @keyframes fadein{from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:none;}}
 
 /* ---------- generic components ---------- */
-.card{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow-sm);}
+.card{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow-sm); transition:box-shadow .18s ease;}
 .card-pad{padding:20px 22px;}
-.section-head{display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:14px;}
-.section-head h3{font-size:17px;}
+.section-head{display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:14px; padding-bottom:12px; border-bottom:1px solid var(--border);}
+.section-head h3{font-size:17px; position:relative; padding-left:12px;}
+.section-head h3::before{content:""; position:absolute; left:0; top:3px; bottom:3px; width:3px; border-radius:2px; background:var(--accent);}
 .section-head .desc{font-size:12.5px; color:var(--ink-soft); margin-top:2px;}
 
 .btn{
   display:inline-flex; align-items:center; gap:6px; border:1px solid transparent; border-radius:8px;
   padding:9px 16px; font-size:13.5px; font-weight:600; cursor:pointer; transition:all .15s; white-space:nowrap;
 }
+.btn:active{transform:translateY(1px);}
 .btn-primary{background:var(--primary); color:#fff;}
 .btn-primary:hover{background:var(--primary-dark);}
 .btn-accent{background:var(--accent); color:var(--primary-dark);}
@@ -112,9 +115,11 @@ nav.navlist{padding:14px 10px; flex:1;}
 @media (max-width:1080px){.grid-4{grid-template-columns:repeat(2,1fr);} .grid-3{grid-template-columns:repeat(2,1fr);}}
 @media (max-width:640px){.grid-4,.grid-3,.grid-2{grid-template-columns:1fr;}}
 
-.stat-card{padding:18px 20px; position:relative; overflow:hidden;}
+.stat-card{padding:18px 20px 18px 22px; position:relative; overflow:hidden; transition:transform .15s ease, box-shadow .15s ease;}
+.stat-card:hover{transform:translateY(-2px); box-shadow:var(--shadow-md);}
+.stat-card::before{content:""; position:absolute; left:0; top:0; bottom:0; width:4px; background:linear-gradient(180deg, var(--accent), var(--primary));}
 .stat-card .label{font-size:12px; color:var(--ink-soft); font-weight:600; letter-spacing:.02em;}
-.stat-card .value{font-family:var(--font-display); font-size:26px; font-weight:700; color:var(--primary-dark); margin-top:6px;}
+.stat-card .value{font-family:var(--font-display); font-size:27px; font-weight:700; color:var(--primary-dark); margin-top:6px;}
 .stat-card .hint{font-size:11.5px; color:var(--ink-faint); margin-top:4px;}
 .stat-card .tag{position:absolute; top:14px; right:14px; font-size:10px; padding:3px 8px; border-radius:20px; font-weight:700;}
 .tag-good{background:var(--success-soft); color:var(--success);}
@@ -129,8 +134,10 @@ thead th{
 thead th:first-child{border-top-left-radius:8px;}
 thead th:last-child{border-top-right-radius:8px;}
 tbody td{padding:10px 10px; border-bottom:1px solid var(--border); color:var(--ink); vertical-align:middle;}
-tbody tr:hover{background:#FBF9F3;}
+tbody tr:nth-child(even){background:#FBF9F2;}
+tbody tr:hover{background:#F3EEDD;}
 tbody tr:last-child td{border-bottom:none;}
+td.col-divide, th.col-divide{border-right:1px solid var(--border);}
 .table-wrap{overflow-x:auto; border:1px solid var(--border); border-radius:var(--radius); background:var(--surface);}
 .table-wrap table{min-width:640px;}
 .empty-row td{text-align:center; color:var(--ink-faint); padding:36px 10px; font-size:13px;}
@@ -417,22 +424,28 @@ function findCustomerByCodeOrName(text){
 function mapImportedTransactionRow(row){
   const dateRaw = row["日期(YYYY-MM-DD)"] !== undefined ? row["日期(YYYY-MM-DD)"] : pickField(row, ["日期","Date","date"]);
   const date = parseImportDate(dateRaw);
-  const categoryRaw = pickField(row, ["類別(服務/商品/其他)","類別","Category"]);
-  const category = CATEGORIES.includes(categoryRaw) ? categoryRaw : "";
+  let categoryRaw = pickField(row, ["類別(服務/商品/其他)","類別","Category"]);
   const itemName = pickField(row, ["項目","Item","item"]);
+  if(!CATEGORIES.includes(categoryRaw) && itemName === "調理") categoryRaw = "服務"; // 調理必屬服務類別，自動補正缺漏的類別欄
+  const category = CATEGORIES.includes(categoryRaw) ? categoryRaw : "";
   const item = findItemByNameCategory(category, itemName);
-  const custText = pickField(row, ["客戶(姓名或編號，可留空＝現場客)","客戶(姓名或編號)","客戶","Customer"]);
-  const customer = findCustomerByCodeOrName(custText);
-  const therapistName = pickField(row, ["調理師","Therapist"]);
-  const therapist = findTherapistByName(therapistName);
-  let customerType = pickField(row, ["客戶類別(一般/選手，僅調理項目適用)","客戶類別","CustomerType"]);
+
+  const customerCode = pickField(row, ["客戶編號","編號","Customer Code","customerCode"]);
+  const customerNameRaw = pickField(row, ["姓名","客戶姓名","Customer Name","customerName","客戶(姓名或編號，可留空＝現場客)","客戶(姓名或編號)","客戶","Customer"]);
+  let customer = null;
+  if(customerCode) customer = findCustomerByCodeOrName(customerCode);
+  if(!customer && customerNameRaw) customer = findCustomerByCodeOrName(customerNameRaw);
+
+  const therapistNameRaw = pickField(row, ["調理師","Therapist"]);
+  const therapist = findTherapistByName(therapistNameRaw);
+  let customerType = pickField(row, ["客戶類別(一般/選手)","客戶類別(一般/選手，僅調理項目適用)","客戶類別","CustomerType"]);
   customerType = customerType === "選手" ? "選手" : "一般";
   const qty = Number(pickField(row, ["數量","Qty","qty"])) || 1;
   let unitPriceRaw = pickField(row, ["單價(可留空由系統試算)","單價","UnitPrice"]);
   let discount = Number(pickField(row, ["折扣","Discount"])) || 0;
-  let amountRaw = pickField(row, ["金額(可留空自動計算)","金額","Amount"]);
-  let payment = pickField(row, ["付款方式","Payment"]);
-  if(!PAYMENTS.includes(payment)) payment = "現金";
+  let amountRaw = pickField(row, ["金額(可留空自動計算)","費用","金額","Amount"]);
+  let paymentRaw = pickField(row, ["付款方式","收費方式","Payment"]);
+  let payment = PAYMENTS.find(p => p.toLowerCase() === paymentRaw.toLowerCase()) || (paymentRaw ? "其他" : "現金");
   const note = pickField(row, ["備註","Note","note"]);
 
   let reason = "";
@@ -453,12 +466,12 @@ function mapImportedTransactionRow(row){
   return {
     ok:true,
     date, category, itemId:item.id, itemName:item.name,
-    customerId: customer?customer.id:"", customerName: customer?customer.name:custText,
-    therapistId: therapist?therapist.id:"", therapistName: therapist?therapist.name:"",
+    customerId: customer?customer.id:"", customerName: customer?customer.name:(customerNameRaw||customerCode||""),
+    therapistId: therapist?therapist.id:"", therapistName: therapist?therapist.name:(therapistNameRaw||""),
     customerType: item.id==="it_tiao" ? customerType : "",
     qty, unitPrice, discount, amount, payment, note:note||"",
-    customerMatched: custText ? !!customer : true,
-    therapistMatched: therapistName ? !!therapist : true,
+    customerMatched: (customerCode||customerNameRaw) ? !!customer : true,
+    therapistMatched: therapistNameRaw ? !!therapist : true,
   };
 }
 function openImportModal(kind){
@@ -516,7 +529,7 @@ function renderImportPreview(valid, invalid, kind){
     ? [["編號","code"],["姓名","name"],["電話","phone"],["性別","gender"],["工作","occupation"],["出生年","birthYear"],["生日","birthDate"],["轉介人","referrer"],["枕頭","pillowInfo"],["備註","note"]]
     : kind==="therapist"
     ? [["姓名","name"],["等級","level"],["電話","phone"],["到職日","joinDate"],["狀態","status"],["備註","note"]]
-    : [["日期","date"],["客戶","customerName"],["類別","category"],["項目","itemName"],["調理師","therapistName"],["數量","qty"],["單價","unitPrice"],["折扣","discount"],["金額","amount"],["付款","payment"]];
+    : [["日期","date"],["客戶類別","customerType"],["客戶","customerName"],["類別","category"],["項目","itemName"],["數量","qty"],["調理師","therapistName"],["折扣","discount"],["金額","amount"],["付款","payment"]];
   let extraNote = "";
   if(kind==="transaction"){
     const custWarn = valid.filter(r=>!r.customerMatched).length;
@@ -1212,8 +1225,8 @@ function renderTransactions(){
   `;
   document.getElementById("downloadTxTemplateBtn").addEventListener("click", ()=>{
     downloadXlsxTemplate(
-      ["日期(YYYY-MM-DD)","客戶(姓名或編號，可留空＝現場客)","類別(服務/商品/其他)","項目","調理師","客戶類別(一般/選手，僅調理項目適用)","數量","單價(可留空由系統試算)","折扣","金額(可留空自動計算)","付款方式","備註"],
-      [todayStr(),"A001","服務","調理","王大明","一般",1,"","0","","現金",""],
+      ["日期(YYYY-MM-DD)","客戶類別(一般/選手)","客戶編號","姓名","類別(服務/商品/其他)","項目","數量","調理師","折扣","費用","付款方式","備註"],
+      [todayStr(),"一般","A001","王小明","服務","調理",1,"王大明","0","","現金",""],
       "消費紀錄範本.xlsx", "消費紀錄"
     );
   });
@@ -1278,6 +1291,20 @@ function filteredTx(){
     return true;
   }).sort((a,b)=> (b.date+b.id).localeCompare(a.date+a.id));
 }
+function txCustomerCode(t){
+  if(t.customerId){
+    const c = byId(state.customers, t.customerId);
+    if(c) return c.code || "—";
+  }
+  return "—";
+}
+function txCustomerName(t){
+  if(t.customerId){
+    const c = byId(state.customers, t.customerId);
+    if(c) return c.name;
+  }
+  return t.customerName || "現場客";
+}
 function renderTxTable(){
   const list = filteredTx();
   const totalPages = Math.max(1, Math.ceil(list.length/TX_PAGE_SIZE));
@@ -1287,20 +1314,37 @@ function renderTxTable(){
 
   document.getElementById("txTableWrap").innerHTML = `
     <div class="table-wrap mt12">
-      <table>
-        <thead><tr><th>日期</th><th>客戶</th><th>類別</th><th>項目</th><th>調理師</th><th class="num">數量</th><th class="num">單價</th><th class="num">折扣</th><th class="num">金額</th><th>付款</th><th>備註</th><th>操作</th></tr></thead>
+      <table class="tx-table">
+        <thead><tr>
+          <th style="width:96px;">日期</th>
+          <th style="width:86px;" class="col-divide">客戶編號</th>
+          <th style="width:96px;">姓名</th>
+          <th style="width:70px;">客戶類別</th>
+          <th style="width:74px;" class="col-divide">類別</th>
+          <th style="width:96px;">項目</th>
+          <th style="width:96px;">調理師</th>
+          <th class="num" style="width:56px;">數量</th>
+          <th class="num" style="width:86px;">單價</th>
+          <th class="num" style="width:76px;">折扣</th>
+          <th class="num col-divide" style="width:96px;">費用</th>
+          <th style="width:82px;">付款</th>
+          <th>備註</th>
+          <th style="width:76px;">操作</th>
+        </tr></thead>
         <tbody>
           ${pageItems.length? pageItems.map(t=>`
             <tr>
-              <td>${escapeHtml(t.date)}</td>
-              <td>${escapeHtml(txCustomerLabel(t))}${t.itemId==="it_tiao" && t.customerType ? `<div class="faint">${t.customerType}</div>`:''}</td>
-              <td><span class="pill pill-mute">${escapeHtml(t.category)}</span></td>
+              <td class="mono">${escapeHtml(t.date)}</td>
+              <td class="mono col-divide">${escapeHtml(txCustomerCode(t))}</td>
+              <td>${escapeHtml(txCustomerName(t))}</td>
+              <td>${t.itemId==="it_tiao" && t.customerType ? `<span class="pill ${t.customerType==='選手'?'pill-good':'pill-mute'}">${escapeHtml(t.customerType)}</span>` : '—'}</td>
+              <td class="col-divide"><span class="pill pill-mute">${escapeHtml(t.category)}</span></td>
               <td>${escapeHtml(t.itemName)}</td>
               <td>${escapeHtml(t.therapistName||'未指定')}</td>
               <td class="num mono">${fmtNum(t.qty)}</td>
               <td class="num mono">${fmtMoney(t.unitPrice)}</td>
               <td class="num mono">${t.discount?fmtMoney(t.discount):'—'}</td>
-              <td class="num mono" style="font-weight:700;">${fmtMoney(t.amount)}</td>
+              <td class="num mono col-divide" style="font-weight:700; color:var(--primary-dark);">${fmtMoney(t.amount)}</td>
               <td>${escapeHtml(t.payment||'—')}</td>
               <td class="faint">${escapeHtml(t.note||'')}</td>
               <td>
@@ -1309,7 +1353,7 @@ function renderTxTable(){
                   <button class="icon-btn" data-action="delete-transaction" data-id="${t.id}" title="刪除">🗑</button>
                 </div>
               </td>
-            </tr>`).join("") : `<tr class="empty-row"><td colspan="12">找不到符合條件的消費紀錄</td></tr>`}
+            </tr>`).join("") : `<tr class="empty-row"><td colspan="14">找不到符合條件的消費紀錄</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -1327,8 +1371,8 @@ function renderTxTable(){
 }
 function exportTransactionsCsv(){
   const list = filteredTx();
-  const header = ["日期","客戶","類別","項目","調理師","客戶類別","數量","單價","折扣","金額","付款方式","備註"];
-  const rows = list.map(t=>[t.date,t.customerName,t.category,t.itemName,t.therapistName,t.customerType,t.qty,t.unitPrice,t.discount,t.amount,t.payment,t.note]);
+  const header = ["日期","客戶編號","姓名","客戶類別","類別","項目","調理師","數量","單價","折扣","費用","付款方式","備註"];
+  const rows = list.map(t=>[t.date, txCustomerCode(t)==='—'?'':txCustomerCode(t), txCustomerName(t), t.customerType, t.category, t.itemName, t.therapistName, t.qty, t.unitPrice, t.discount, t.amount, t.payment, t.note]);
   downloadCsv("消費紀錄.csv", header, rows);
   toast("已匯出 CSV", "success");
 }
