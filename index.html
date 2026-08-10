@@ -279,6 +279,9 @@ input[type=file]{border:1px solid var(--border); border-radius:8px; padding:8px 
 <div id="toastStack"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
 <script>
 (function(){
 "use strict";
@@ -684,7 +687,8 @@ function defaultState(){
     costs,
     transactions,
     settlements:{},
-    security:{hash:null, salt:null, hint:"", question:"", qHash:null, qSalt:null}
+    security:{hash:null, salt:null, hint:"", question:"", qHash:null, qSalt:null},
+    cloudSync:{firebaseConfigRaw:"", syncCode:"", lastSyncedAt:null}
   };
 }
 
@@ -709,6 +713,8 @@ function loadState(){
         if(t.pinSalt===undefined) t.pinSalt = null;
       });
     }
+    if(!parsed.cloudSync) parsed.cloudSync = {firebaseConfigRaw:"", syncCode:"", lastSyncedAt:null};
+    if(parsed.cloudSync.firebaseConfigRaw===undefined) parsed.cloudSync = {firebaseConfigRaw:"", syncCode:"", lastSyncedAt:null};
     return parsed;
   }catch(e){
     console.error("讀取本機資料失敗，改用預設範例資料", e);
@@ -721,6 +727,157 @@ function saveState(){
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }catch(e){
     toast("儲存失敗：瀏覽器儲存空間可能已滿", "error");
+  }
+  if(state.cloudSync && state.cloudSync.syncCode && firebaseDbRef && !applyingRemoteUpdate){
+    scheduleCloudPush();
+  }
+}
+
+/* =======================================================
+   1b. 雲端同步（跨裝置，透過使用者自建的 Firebase Realtime Database）
+   ======================================================= */
+let firebaseApp = null;
+let firebaseDbRef = null;
+let firebaseListenerAttached = false;
+let applyingRemoteUpdate = false;
+let cloudPushTimer = null;
+let cloudConnecting = false;
+
+function scheduleCloudPush(){
+  if(cloudPushTimer) clearTimeout(cloudPushTimer);
+  cloudPushTimer = setTimeout(()=> pushStateToFirebase(), 1200);
+}
+function parseFirebaseConfig(text){
+  text = (text||"").trim();
+  if(!text) throw new Error("請貼上 Firebase 設定");
+  // 去掉常見的 "const firebaseConfig = ... ;" 包裝，只取物件本體
+  const braceStart = text.indexOf("{");
+  const braceEnd = text.lastIndexOf("}");
+  if(braceStart===-1 || braceEnd===-1 || braceEnd<braceStart) throw new Error("找不到設定內容，請確認有貼上完整的 { ... } 物件");
+  const objText = text.slice(braceStart, braceEnd+1);
+  let config;
+  try{
+    // eslint-disable-next-line no-new-func
+    config = new Function("return (" + objText + ");")();
+  }catch(e){
+    throw new Error("設定格式無法解析，請確認是直接複製 Firebase 主控台的內容");
+  }
+  if(!config || !config.apiKey || !config.projectId) throw new Error("設定內容不完整（缺少 apiKey 或 projectId）");
+  if(!config.databaseURL) throw new Error("缺少 databaseURL，請依步驟 6 手動加入這一行");
+  return config;
+}
+async function cloudConnect(configText, syncCode){
+  if(cloudConnecting) return;
+  syncCode = (syncCode||"").trim();
+  if(!syncCode){ toast("請設定同步代碼","error"); return; }
+  let config;
+  try{ config = parseFirebaseConfig(configText); }
+  catch(e){ toast(e.message, "error"); return; }
+
+  cloudConnecting = true;
+  try{
+    if(typeof firebase === "undefined") throw new Error("Firebase 函式庫載入失敗，請確認網路連線後重新整理頁面再試");
+    if(firebaseApp){ try{ firebaseApp.delete(); }catch(e){} firebaseApp=null; firebaseDbRef=null; firebaseListenerAttached=false; }
+    firebaseApp = firebase.initializeApp(config, "studioApp_"+Date.now());
+    await firebaseApp.auth().signInAnonymously();
+    firebaseDbRef = firebaseApp.database().ref("studios/" + syncCode);
+
+    const snap = await firebaseDbRef.once("value");
+    const remote = snap.val();
+
+    const finish = ()=>{
+      state.cloudSync = {
+        firebaseConfigRaw: configText, syncCode, lastSyncedAt: new Date().toISOString()
+      };
+      saveState();
+      attachFirebaseListener();
+      toast("已連線並開始同步","success");
+      if(activeTab==="backup") renderBackup();
+    };
+
+    if(!remote || !remote.items){
+      // 雲端尚無資料，直接把本機資料上傳當作起點
+      await firebaseDbRef.set(state);
+      finish();
+    } else {
+      const remoteTime = remote.meta && remote.meta.updatedAt ? new Date(remote.meta.updatedAt).getTime() : 0;
+      const localTime = state.meta && state.meta.updatedAt ? new Date(state.meta.updatedAt).getTime() : 0;
+      if(remoteTime > localTime){
+        confirmModal({
+          title:"發現雲端有較新的資料", message:"雲端資料比本機新，建議下載雲端資料到這台裝置。若選擇取消，將改用本機資料覆蓋雲端。",
+          confirmText:"下載雲端資料",
+          onConfirm(){
+            applyingRemoteUpdate = true;
+            state = remote;
+            applyingRemoteUpdate = false;
+            finish();
+          }
+        });
+      } else {
+        await firebaseDbRef.set(state);
+        finish();
+      }
+    }
+  }catch(err){
+    toast("連線失敗："+err.message, "error");
+    firebaseApp = null; firebaseDbRef = null;
+  }finally{
+    cloudConnecting = false;
+  }
+}
+function attachFirebaseListener(){
+  if(!firebaseDbRef || firebaseListenerAttached) return;
+  firebaseListenerAttached = true;
+  firebaseDbRef.on("value", (snap)=>{
+    const remote = snap.val();
+    if(!remote || !remote.items) return;
+    const remoteTime = remote.meta && remote.meta.updatedAt ? new Date(remote.meta.updatedAt).getTime() : 0;
+    const localTime = state.meta && state.meta.updatedAt ? new Date(state.meta.updatedAt).getTime() : 0;
+    if(remoteTime > localTime){
+      applyingRemoteUpdate = true;
+      const cs = state.cloudSync;
+      state = remote;
+      state.cloudSync = cs;
+      state.cloudSync.lastSyncedAt = new Date().toISOString();
+      sensitiveUnlocked = false;
+      saveState();
+      applyingRemoteUpdate = false;
+      toast("已同步其他裝置的最新資料","info");
+      if(RENDERERS[activeTab]) switchTab(activeTab);
+    }
+  });
+}
+async function pushStateToFirebase(){
+  if(!firebaseDbRef) return;
+  try{
+    await firebaseDbRef.set(state);
+    state.cloudSync.lastSyncedAt = new Date().toISOString();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    if(activeTab==="backup") renderBackup();
+  }catch(err){
+    toast("同步上傳失敗："+err.message, "error");
+  }
+}
+function cloudDisconnect(){
+  if(firebaseDbRef){ try{ firebaseDbRef.off(); }catch(e){} }
+  if(firebaseApp){ try{ firebaseApp.delete(); }catch(e){} }
+  firebaseApp = null; firebaseDbRef = null; firebaseListenerAttached = false;
+  state.cloudSync = {firebaseConfigRaw:"", syncCode:"", lastSyncedAt:null};
+  saveState();
+}
+async function tryAutoReconnectCloud(){
+  const cs = state.cloudSync;
+  if(!cs || !cs.firebaseConfigRaw || !cs.syncCode) return;
+  if(typeof firebase === "undefined") return;
+  try{
+    let config;
+    try{ config = parseFirebaseConfig(cs.firebaseConfigRaw); } catch(e){ return; }
+    firebaseApp = firebase.initializeApp(config, "studioApp_"+Date.now());
+    await firebaseApp.auth().signInAnonymously();
+    firebaseDbRef = firebaseApp.database().ref("studios/" + cs.syncCode);
+    attachFirebaseListener();
+  }catch(e){
+    console.error("自動重新連線雲端同步失敗", e);
   }
 }
 
@@ -2429,6 +2586,13 @@ function renderBackup(){
     </div>
 
     <div class="card card-pad mt16">
+      <div class="section-head"><h3>雲端同步（跨裝置：手機／平板／桌電）</h3><span class="desc">讓手機、平板、筆電等多個裝置的資料自動保持一致</span></div>
+      ${cloudSyncSectionHTML()}
+      <div class="faint mt12" style="line-height:1.6;">
+        說明：此功能使用您自己申請的免費 Firebase 專案（Google 提供），資料儲存在您自己的帳號下，一旦連線成功即為即時自動同步（改資料後幾秒內其他裝置就會更新）。資料未加密，請依步驟 9 設定安全規則並妥善保管同步代碼；仍建議定期使用下方「匯出備份檔」保留本機備份。</div>
+    </div>
+
+    <div class="card card-pad mt16">
       <div class="section-head"><h3>資料備份與還原</h3><span class="desc">所有資料僅儲存在目前這台電腦、這個瀏覽器中，請定期備份</span></div>
       <div class="small-btn-row">
         <button class="btn btn-primary" id="exportJsonBtn">匯出備份檔（JSON）</button>
@@ -2478,12 +2642,17 @@ function renderBackup(){
         confirmModal({
           title:"匯入備份檔", message:"匯入將完全取代目前資料，確定要繼續嗎？", confirmText:"匯入並取代", danger:true,
           onConfirm(){
+            if(firebaseDbRef){ try{ firebaseDbRef.off(); }catch(e){} }
+            if(firebaseApp){ try{ firebaseApp.delete(); }catch(e){} }
+            firebaseApp = null; firebaseDbRef = null; firebaseListenerAttached = false;
             state = data;
             if(!state.security) state.security = {hash:null, salt:null};
+            if(!state.cloudSync) state.cloudSync = {firebaseConfigRaw:"", syncCode:"", lastSyncedAt:null};
             sensitiveUnlocked = false;
             saveState();
             toast("已匯入備份資料","success");
             switchTab("dashboard");
+            tryAutoReconnectCloud();
           }
         });
       }catch(err){ toast("讀取檔案失敗："+err.message, "error"); }
@@ -2495,6 +2664,9 @@ function renderBackup(){
     confirmModal({
       title:"清空所有資料", message:"此動作將清除所有客戶、調理師、消費紀錄與設定，且無法復原。建議先匯出備份。確定要清空嗎？", confirmText:"清空所有資料", danger:true,
       onConfirm(){
+        if(firebaseDbRef){ try{ firebaseDbRef.off(); }catch(e){} }
+        if(firebaseApp){ try{ firebaseApp.delete(); }catch(e){} }
+        firebaseApp = null; firebaseDbRef = null; firebaseListenerAttached = false;
         state = defaultState();
         sensitiveUnlocked = false;
         saveState();
@@ -2531,7 +2703,97 @@ function renderBackup(){
     const disablePwBtn = document.getElementById("disablePwBtn");
     if(disablePwBtn) disablePwBtn.addEventListener("click", openDisablePasswordModal);
   }
+  wireCloudSyncSection();
 }
+function cloudSyncSectionHTML(){
+  const cs = state.cloudSync || {};
+  const connected = !!(cs.syncCode && firebaseDbRef);
+  const statusDot = connected ? 'background:var(--success);' : (cs.syncCode ? 'background:var(--accent);' : 'background:var(--ink-faint);');
+  const statusTitle = connected ? '已連線，即時同步中' : (cs.syncCode ? '已設定，重新整理後會自動嘗試連線' : '尚未設定雲端同步');
+  const statusSub = connected
+    ? `同步代碼：${escapeHtml(cs.syncCode)}　／　最後同步：${cs.lastSyncedAt ? new Date(cs.lastSyncedAt).toLocaleString('zh-Hant-TW') : '—'}`
+    : (cs.syncCode ? '正在嘗試重新連線…若一直沒有變成綠燈，請確認網路連線或重新設定' : '設定好下方欄位後按「連線並開始同步」，即可讓所有裝置的資料保持一致');
+
+  return `
+    <div class="card" style="padding:16px 18px; display:flex; align-items:center; gap:12px;">
+      <span style="width:12px; height:12px; border-radius:50%; flex-shrink:0; ${statusDot}"></span>
+      <div>
+        <div style="font-weight:700; color:var(--primary-dark);">${statusTitle}</div>
+        <div class="faint mt8" style="margin-top:2px;">${statusSub}</div>
+      </div>
+    </div>
+
+    <div class="mt16">
+      <div class="section-head" style="border:none; margin-bottom:10px; padding-bottom:0;"><h3 style="font-size:14.5px;">設定步驟（只需在每台裝置各設定一次）</h3></div>
+      <ol style="line-height:1.9; padding-left:20px; color:var(--ink); font-size:13px;">
+        <li>前往 <a href="https://console.firebase.google.com" target="_blank" rel="noopener">console.firebase.google.com</a>，用 Google 帳號登入，建立一個新專案（免費方案即可，可以不用開 Google Analytics）</li>
+        <li>建立完成、進入專案畫面後，點左側選單「建構 Build」→「Realtime Database」→「建立資料庫 Create Database」，地區隨選，安全性規則先選「測試模式 Test mode」→ 啟用</li>
+        <li><b>重要，容易漏掉：</b>左側選單「建構 Build」→「Authentication」→「開始使用 Get started」→上方分頁選「Sign-in method」→ 找到清單裡的「匿名 Anonymous」→ 點進去打開「啟用 Enable」開關 → 儲存。（這一步沒做，等一下按「連線」會失敗）</li>
+        <li>點左上角齒輪 ⚙ →「專案設定 Project settings」→ 頁面下方「你的應用程式 Your apps」找不到應用程式的話，點 &lt;/&gt;（網頁）圖示新增一個，取個名字（例如 web）即可，不需要勾選 Firebase Hosting，一路「下一步」到完成</li>
+        <li>應用程式建立後，畫面會顯示一段 <span class="mono">const firebaseConfig = {'{'}...{'}'}</span> 程式碼，整段選取複製；之後想再找這段設定，可以到「專案設定」一般頁籤下方「你的應用程式」，點你的網頁應用程式，選「設定 Config」</li>
+        <li><b>重要，容易漏掉：</b>這段程式碼通常不會自動包含 <span class="mono">databaseURL</span> 這一行。請另外到左側選單「Realtime Database」頁面，畫面最上方會顯示一個網址（例如 <span class="mono">https://你的專案id-default-rtdb.地區.firebasedatabase.app</span>），複製它，手動貼到 firebaseConfig 裡加一行 <span class="mono">databaseURL: "貼在這裡",</span>（前後留意要有逗號跟雙引號）</li>
+        <li>回到這裡，把整段（含手動加上 databaseURL 之後）貼到下方「Firebase 設定」欄位</li>
+        <li>自訂一組「同步代碼」（例如店名縮寫＋隨機數字，不要用太簡單的字），所有裝置都要輸入完全相同的代碼才能同步到一起</li>
+        <li>按「連線並開始同步」。之後回到 Realtime Database 的「規則 Rules」分頁，建議改成下方提供的安全規則，避免任何人都能讀寫你的資料</li>
+      </ol>
+    </div>
+
+    <div class="form-row mt16">
+      <div class="field" style="grid-column:1/-1;">
+        <label>Firebase 設定（貼上從 Firebase 主控台複製的整段 firebaseConfig）</label>
+        <textarea id="cloudConfigInput" rows="8" style="font-family:monospace; font-size:12px;" placeholder="const firebaseConfig = {
+  apiKey: &quot;...&quot;,
+  authDomain: &quot;...&quot;,
+  databaseURL: &quot;https://xxx.firebaseio.com&quot;,
+  projectId: &quot;...&quot;,
+  ...
+};">${escapeHtml(cs.firebaseConfigRaw||'')}</textarea>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="field"><label>同步代碼（所有裝置需輸入完全相同的代碼）</label><input type="text" id="cloudSyncCodeInput" placeholder="例如 yuhuo-studio-2026" value="${escapeHtml(cs.syncCode||'')}"></div>
+    </div>
+    <div class="small-btn-row">
+      <button class="btn btn-accent" id="cloudConnectBtn">${connected?'重新連線':'連線並開始同步'}</button>
+      ${cs.syncCode ? `<button class="btn btn-danger" id="cloudDisconnectBtn">中斷並清除此裝置的同步設定</button>` : ``}
+    </div>
+
+    <div class="divider"></div>
+    <div class="field">
+      <label>建議的安全規則（連線成功後，到 Firebase「Realtime Database → 規則 Rules」貼上並發布）</label>
+      <pre style="background:var(--surface-alt); border:1px solid var(--border); border-radius:8px; padding:12px; font-size:12px; overflow-x:auto; white-space:pre;">{
+  "rules": {
+    "studios": {
+      "$syncCode": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    }
+  }
+}</pre>
+    </div>
+  `;
+}
+function wireCloudSyncSection(){
+  const connectBtn = document.getElementById("cloudConnectBtn");
+  if(connectBtn) connectBtn.addEventListener("click", ()=>{
+    const configText = document.getElementById("cloudConfigInput").value;
+    const syncCode = document.getElementById("cloudSyncCodeInput").value;
+    cloudConnect(configText, syncCode);
+  });
+  const disconnectBtn = document.getElementById("cloudDisconnectBtn");
+  if(disconnectBtn) disconnectBtn.addEventListener("click", ()=>{
+    confirmModal({
+      title:"中斷雲端同步", message:"僅會清除這台裝置的同步設定，雲端上的資料仍會保留，其他已連接的裝置不受影響。確定要中斷嗎？", confirmText:"中斷連線", danger:true,
+      onConfirm(){
+        cloudDisconnect();
+        toast("已中斷此裝置的雲端同步","success");
+        renderBackup();
+      }
+    });
+  });
+}
+
 function openChangePasswordModal(){
   const sec = state.security;
   openModal({
@@ -2651,6 +2913,7 @@ function init(){
   renderNav();
   document.getElementById("brandName").textContent = state.meta.studioName || "工作室記帳系統";
   switchTab("dashboard");
+  tryAutoReconnectCloud();
 }
 init();
 
