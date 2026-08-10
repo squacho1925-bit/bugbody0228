@@ -838,13 +838,29 @@ async function cloudConnect(configText, syncCode){
       const localTime = state.meta && state.meta.updatedAt ? new Date(state.meta.updatedAt).getTime() : 0;
       if(remoteTime > localTime){
         confirmModal({
-          title:"發現雲端有較新的資料", message:"雲端資料比本機新，建議下載雲端資料到這台裝置。若選擇取消，將改用本機資料覆蓋雲端。",
-          confirmText:"下載雲端資料",
+          title:"發現雲端有較新的資料", message:"雲端資料比本機新，建議下載雲端資料到這台裝置。若按「改用本機覆蓋」，將用這台裝置目前的資料覆蓋掉雲端上較新的內容，請先確認這是您要的動作。",
+          confirmText:"下載雲端資料", cancelText:"改用本機覆蓋",
           onConfirm(){
             applyingRemoteUpdate = true;
             state = remote;
             applyingRemoteUpdate = false;
             finish();
+          },
+          onCancel(){
+            (async ()=>{
+              console.log("[雲端同步] 使用者選擇改用本機資料覆蓋雲端…");
+              try{
+                await withTimeout(firebaseDbRef.set(state), 15000, "上傳資料逾時，請稍後再試一次");
+                console.log("[雲端同步] 覆蓋雲端完成");
+                finish();
+                toast("已用本機資料覆蓋雲端","success");
+              }catch(e){
+                console.error("[雲端同步] 覆蓋雲端失敗", e);
+                cloudLastError = e.message;
+                toast("覆蓋雲端失敗："+e.message, "error");
+                if(activeTab==="backup") renderBackup();
+              }
+            })();
           }
         });
       } else {
@@ -959,16 +975,20 @@ document.getElementById("modalCloseBtn").addEventListener("click", closeModal);
 document.getElementById("modalOverlay").addEventListener("click", (e)=>{ if(e.target.id === "modalOverlay") closeModal(); });
 document.addEventListener("keydown", (e)=>{ if(e.key === "Escape") closeModal(); });
 
-function confirmModal({title, message, confirmText, danger, onConfirm}){
+function confirmModal({title, message, confirmText, cancelText, danger, onConfirm, onCancel}){
+  let handled = false;
   openModal({
     title: title || "請確認",
     bodyHTML: `<p style="line-height:1.7; color:var(--ink)">${escapeHtml(message||"")}</p>`,
     footHTML: `
-      <button class="btn btn-ghost" data-close>取消</button>
+      <button class="btn btn-ghost" data-close>${escapeHtml(cancelText||"取消")}</button>
       <button class="btn ${danger?'btn-danger':'btn-primary'}" id="confirmYesBtn">${escapeHtml(confirmText||"確認")}</button>
     `,
+    onClose(){
+      if(!handled && onCancel) onCancel();
+    },
   });
-  document.getElementById("confirmYesBtn").addEventListener("click", ()=>{ closeModal(); onConfirm && onConfirm(); });
+  document.getElementById("confirmYesBtn").addEventListener("click", ()=>{ handled = true; closeModal(); onConfirm && onConfirm(); });
   document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click", closeModal));
 }
 
