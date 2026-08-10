@@ -742,6 +742,7 @@ let firebaseListenerAttached = false;
 let applyingRemoteUpdate = false;
 let cloudPushTimer = null;
 let cloudConnecting = false;
+let cloudLastError = "";
 function withTimeout(promise, ms, message){
   return Promise.race([
     promise,
@@ -781,21 +782,29 @@ async function cloudConnect(configText, syncCode){
   catch(e){ toast(e.message, "error"); return; }
 
   cloudConnecting = true;
+  cloudLastError = "";
   try{
     if(typeof firebase === "undefined") throw new Error("Firebase 函式庫載入失敗，請確認網路連線後重新整理頁面再試");
     if(firebaseApp){ try{ firebaseApp.delete(); }catch(e){} firebaseApp=null; firebaseDbRef=null; firebaseListenerAttached=false; }
     firebaseApp = firebase.initializeApp(config, "studioApp_"+Date.now());
     try{
-      await withTimeout(firebaseApp.auth().signInAnonymously(), 12000, "登入逾時：請確認 Firebase 主控台的 Authentication → Sign-in method 已啟用「匿名 Anonymous」，並確認網路連線正常");
+      await withTimeout(firebaseApp.auth().signInAnonymously(), 9000, "登入逾時（9秒）：請確認 Firebase 主控台的 Authentication → Sign-in method 已啟用「匿名 Anonymous」，並確認網路連線正常");
     }catch(authErr){
+      console.error("Firebase 匿名登入失敗", authErr);
       if(authErr && authErr.code === "auth/admin-restricted-operation"){
         throw new Error("尚未啟用匿名登入，請到 Firebase 主控台「Authentication → Sign-in method」開啟「匿名 Anonymous」後再試一次");
       }
-      throw authErr;
+      throw new Error((authErr && (authErr.code || authErr.message)) ? `登入失敗（${authErr.code||''} ${authErr.message||''}）` : "登入失敗，原因不明，請開啟瀏覽器開發者工具 Console 查看詳細錯誤");
     }
     firebaseDbRef = firebaseApp.database().ref("studios/" + syncCode);
 
-    const snap = await withTimeout(firebaseDbRef.once("value"), 12000, "讀取雲端資料逾時，請確認 databaseURL 是否正確、Realtime Database 是否已建立");
+    let snap;
+    try{
+      snap = await withTimeout(firebaseDbRef.once("value"), 9000, "讀取雲端資料逾時（9秒），請確認 databaseURL 是否正確、Realtime Database 是否已建立");
+    }catch(readErr){
+      console.error("Firebase 讀取資料失敗", readErr);
+      throw new Error((readErr && (readErr.code || readErr.message)) ? `讀取雲端資料失敗（${readErr.code||''} ${readErr.message||''}）` : String(readErr));
+    }
     const remote = snap.val();
 
     const finish = ()=>{
@@ -832,8 +841,12 @@ async function cloudConnect(configText, syncCode){
       }
     }
   }catch(err){
-    toast("連線失敗："+err.message, "error");
+    console.error("雲端同步連線失敗", err);
+    cloudLastError = err && err.message ? err.message : String(err);
+    toast("連線失敗："+cloudLastError, "error");
+    if(firebaseApp){ try{ firebaseApp.delete(); }catch(e){} }
     firebaseApp = null; firebaseDbRef = null;
+    if(activeTab==="backup") renderBackup();
   }finally{
     cloudConnecting = false;
   }
@@ -2735,6 +2748,12 @@ function cloudSyncSectionHTML(){
         <div class="faint mt8" style="margin-top:2px;">${statusSub}</div>
       </div>
     </div>
+    ${cloudLastError ? `
+      <div class="note-box mt12" style="background:var(--danger-soft); border-color:#E3B7B0; color:var(--danger); display:flex; justify-content:space-between; gap:10px; align-items:flex-start;">
+        <div><b>上次連線錯誤：</b>${escapeHtml(cloudLastError)}</div>
+        <button class="icon-btn" id="cloudErrorDismissBtn" title="關閉" style="flex-shrink:0;">✕</button>
+      </div>
+    ` : ""}
 
     <div class="mt16">
       <div class="section-head" style="border:none; margin-bottom:10px; padding-bottom:0;"><h3 style="font-size:14.5px;">設定步驟（只需在每台裝置各設定一次）</h3></div>
@@ -2788,8 +2807,11 @@ function cloudSyncSectionHTML(){
   `;
 }
 function wireCloudSyncSection(){
+  const dismissBtn = document.getElementById("cloudErrorDismissBtn");
+  if(dismissBtn) dismissBtn.addEventListener("click", ()=>{ cloudLastError=""; renderBackup(); });
   const connectBtn = document.getElementById("cloudConnectBtn");
   if(connectBtn) connectBtn.addEventListener("click", async ()=>{
+    if(cloudConnecting){ cloudConnecting = false; toast("已重置連線狀態，請再按一次","info"); return; }
     const configText = document.getElementById("cloudConfigInput").value;
     const syncCode = document.getElementById("cloudSyncCodeInput").value;
     if(!configText || !configText.trim()){ toast("請先貼上 Firebase 設定","error"); return; }
