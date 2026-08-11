@@ -292,6 +292,22 @@ input[type=file]{border:1px solid var(--border); border-radius:8px; padding:8px 
 const STORAGE_KEY = "yh_studio_bookkeeping_v1";
 const CATEGORIES = ["服務","商品","其他"];
 const PAYMENTS = ["現金","匯款","LINE Pay","信用卡","其他"];
+const COST_CYCLES = ["週","月","兩個月","季","半年","年"];
+function monthlyEquivalent(amount, cycle){
+  const amt = Number(amount)||0;
+  switch(cycle){
+    case "週": return amt * 52 / 12;
+    case "月": return amt;
+    case "兩個月": return amt / 2;
+    case "季": return amt / 3;
+    case "半年": return amt / 6;
+    case "年": return amt / 12;
+    default: return amt;
+  }
+}
+function totalMonthlyOverhead(list){
+  return (list||[]).reduce((s,i)=> s + monthlyEquivalent(i.amount, i.cycle), 0);
+}
 const CUSTOMER_TYPES = ["一般","選手"];
 const GENDERS = ["男","女","其他"];
 const LEVELS = ["A","B","C","D"];
@@ -670,12 +686,12 @@ function defaultState(){
     pricing:{ levelFee:{A:3000,B:1500,C:1000,D:600}, athleteFee:1000 },
     commission:{
       treatmentTiers:[
-        {id:uid("tt"), min:0, max:40, rate:0.35, bonus:0, label:"0～40 次"},
-        {id:uid("tt"), min:41, max:50, rate:0.45, bonus:0, label:"41～50 次"},
-        {id:uid("tt"), min:51, max:60, rate:0.50, bonus:0, label:"51～60 次"},
-        {id:uid("tt"), min:61, max:75, rate:0.55, bonus:0, label:"61～75 次"},
-        {id:uid("tt"), min:76, max:90, rate:0.60, bonus:0, label:"76～90 次"},
-        {id:uid("tt"), min:91, max:999999, rate:0.60, bonus:1000, label:"91 次以上（另加固定獎金）"},
+        {id:uid("tt"), min:0, max:40, rate:0.35, bonus:0, perPerson:false, label:"0～40 次"},
+        {id:uid("tt"), min:41, max:50, rate:0.45, bonus:0, perPerson:false, label:"41～50 次"},
+        {id:uid("tt"), min:51, max:60, rate:0.50, bonus:0, perPerson:false, label:"51～60 次"},
+        {id:uid("tt"), min:61, max:75, rate:0.55, bonus:0, perPerson:false, label:"61～75 次"},
+        {id:uid("tt"), min:76, max:90, rate:0.60, bonus:0, perPerson:false, label:"76～90 次"},
+        {id:uid("tt"), min:91, max:999999, rate:0.60, bonus:1000, perPerson:true, label:"91 次以上（每多 1 人加 1000 元）"},
       ],
       pillowTiers:[
         {id:uid("pt"), min:1, max:4, rate:300, bonus:0, label:"1～4 顆（每顆分潤）"},
@@ -688,7 +704,27 @@ function defaultState(){
     transactions,
     settlements:{},
     security:{hash:null, salt:null, hint:"", question:"", qHash:null, qSalt:null},
-    cloudSync:{firebaseConfigRaw:"", syncCode:"", lastSyncedAt:null}
+    cloudSync:{firebaseConfigRaw:"", syncCode:"", lastSyncedAt:null},
+    overheadCosts:{
+      fixed:[
+        {id:uid("oh"), name:"水費", amount:250, cycle:"兩個月", note:""},
+        {id:uid("oh"), name:"電費", amount:5000, cycle:"兩個月", note:""},
+        {id:uid("oh"), name:"管理費", amount:600, cycle:"月", note:""},
+        {id:uid("oh"), name:"APP", amount:1950, cycle:"月", note:""},
+        {id:uid("oh"), name:"網路", amount:1200, cycle:"月", note:""},
+      ],
+      variable:[
+        {id:uid("oh"), name:"洗衣", amount:600, cycle:"週", note:""},
+        {id:uid("oh"), name:"制服", amount:0, cycle:"月", note:""},
+        {id:uid("oh"), name:"貼布", amount:5580, cycle:"年", note:""},
+        {id:uid("oh"), name:"獎金", amount:0, cycle:"月", note:""},
+        {id:uid("oh"), name:"聚餐", amount:0, cycle:"月", note:""},
+        {id:uid("oh"), name:"衛生紙", amount:0, cycle:"月", note:""},
+        {id:uid("oh"), name:"垃圾袋", amount:0, cycle:"月", note:""},
+        {id:uid("oh"), name:"濾芯", amount:4500, cycle:"年", note:""},
+        {id:uid("oh"), name:"禮金禮盒", amount:0, cycle:"月", note:""},
+      ]
+    }
   };
 }
 
@@ -715,6 +751,10 @@ function loadState(){
     }
     if(!parsed.cloudSync) parsed.cloudSync = {firebaseConfigRaw:"", syncCode:"", lastSyncedAt:null};
     if(parsed.cloudSync.firebaseConfigRaw===undefined) parsed.cloudSync = {firebaseConfigRaw:"", syncCode:"", lastSyncedAt:null};
+    if(parsed.commission && Array.isArray(parsed.commission.treatmentTiers)){
+      parsed.commission.treatmentTiers.forEach(t=>{ if(t.perPerson===undefined) t.perPerson = false; });
+    }
+    if(!parsed.overheadCosts) parsed.overheadCosts = {fixed:[], variable:[]};
     return parsed;
   }catch(e){
     console.error("讀取本機資料失敗，改用預設範例資料", e);
@@ -1030,12 +1070,13 @@ const TABS = [
   {id:"therapists", label:"調理師管理", icon:"badge"},
   {id:"items", label:"項目與價目", icon:"tag"},
   {id:"commission", label:"分潤規則", icon:"percent"},
+  {id:"overhead", label:"營運成本", icon:"wallet"},
   {id:"settlement", label:"月結算薪資", icon:"calendar"},
   {id:"mypay", label:"我的薪資查詢", icon:"wallet"},
   {id:"backup", label:"系統設定／備份", icon:"database"},
 ];
 let activeTab = "dashboard";
-const LOCKED_TABS = ["dashboard","settlement","commission"];
+const LOCKED_TABS = ["dashboard","settlement","commission","overhead"];
 let sensitiveUnlocked = false;
 let myPayTherapistId = null;
 
@@ -1055,6 +1096,7 @@ const PAGE_META = {
   therapists:["調理師管理","設定調理師等級（決定調理費用）"],
   items:["項目與價目","服務／商品項目與價格設定"],
   commission:["分潤規則","調理量、枕頭銷售與其他項目的分潤設定"],
+  overhead:["營運成本","公司固定成本與變動成本設定"],
   settlement:["月結算薪資","依當月業績自動試算各調理師薪資"],
   mypay:["我的薪資查詢","調理師本人可用個人 PIN 查詢自己的薪資，不會看到其他人資料"],
   backup:["系統設定／備份","工作室名稱、資料備份與還原"],
@@ -1093,46 +1135,47 @@ function renderLockScreen(tabId){
       <h3>此頁僅限店長查看</h3>
       <p class="faint mt8" style="line-height:1.7;">${hasPassword ? '請輸入店長密碼以檢視營收、獲利與薪資等機密資料。' : '尚未設定店長密碼，請先設定密碼即可保護此頁及其他機密頁面。'}</p>
       ${hasPassword ? `
-        <div class="field mt16" style="text-align:left;"><label>店長密碼</label><input type="password" id="lockPasswordInput" autocomplete="off"></div>
-        <button class="btn btn-primary w-100 mt8" id="unlockBtn">解鎖檢視</button>
-        <button id="forgotToggleBtn" style="background:none;border:none;color:var(--ink-soft);text-decoration:underline;cursor:pointer;font-size:12.5px;margin-top:12px;">忘記密碼？</button>
-        <div id="forgotArea" class="hidden mt12" style="text-align:left;"></div>
+        <div class="field mt16" style="text-align:left;"><label>店長密碼</label><input type="password" data-lock-el="lockPasswordInput" autocomplete="off"></div>
+        <button class="btn btn-primary w-100 mt8" data-lock-el="unlockBtn">解鎖檢視</button>
+        <button data-lock-el="forgotToggleBtn" style="background:none;border:none;color:var(--ink-soft);text-decoration:underline;cursor:pointer;font-size:12.5px;margin-top:12px;">忘記密碼？</button>
+        <div data-lock-el="forgotArea" class="hidden mt12" style="text-align:left;"></div>
       ` : `
-        <div class="field mt16" style="text-align:left;"><label>設定新密碼（至少 4 碼）</label><input type="password" id="setupPasswordInput" autocomplete="off"></div>
-        <div class="field" style="text-align:left;"><label>再次輸入密碼</label><input type="password" id="setupPasswordInput2" autocomplete="off"></div>
+        <div class="field mt16" style="text-align:left;"><label>設定新密碼（至少 4 碼）</label><input type="password" data-lock-el="setupPasswordInput" autocomplete="off"></div>
+        <div class="field" style="text-align:left;"><label>再次輸入密碼</label><input type="password" data-lock-el="setupPasswordInput2" autocomplete="off"></div>
         <div class="divider"></div>
-        <div class="field" style="text-align:left;"><label>密碼提示（選填）<span class="help">忘記密碼時會直接顯示給您看</span></label><input type="text" id="setupHintInput" placeholder="例如：我家貓咪的名字"></div>
-        <div class="field" style="text-align:left;"><label>救援問題（選填）<span class="help">忘記密碼時可回答此問題重設密碼</span></label><input type="text" id="setupQuestionInput" placeholder="例如：我小學的名稱？"></div>
-        <div class="field" style="text-align:left;"><label>救援問題答案</label><input type="text" id="setupAnswerInput" autocomplete="off"></div>
-        <button class="btn btn-primary w-100 mt8" id="setupPasswordBtn">設定並解鎖</button>
+        <div class="field" style="text-align:left;"><label>密碼提示（選填）<span class="help">忘記密碼時會直接顯示給您看</span></label><input type="text" data-lock-el="setupHintInput" placeholder="例如：我家貓咪的名字"></div>
+        <div class="field" style="text-align:left;"><label>救援問題（選填）<span class="help">忘記密碼時可回答此問題重設密碼</span></label><input type="text" data-lock-el="setupQuestionInput" placeholder="例如：我小學的名稱？"></div>
+        <div class="field" style="text-align:left;"><label>救援問題答案</label><input type="text" data-lock-el="setupAnswerInput" autocomplete="off"></div>
+        <button class="btn btn-primary w-100 mt8" data-lock-el="setupPasswordBtn">設定並解鎖</button>
       `}
       <p class="faint mt12" style="line-height:1.6;">提醒：此密碼可防止一般同事於畫面上瀏覽，但資料本身仍儲存在本機瀏覽器中。如需更高等級的保護，建議使用店長專用的電腦或帳號。</p>
     </div>
   `;
+  const $ = (name)=> panel.querySelector(`[data-lock-el="${name}"]`);
   if(hasPassword){
     const doUnlock = async ()=>{
-      const pw = document.getElementById("lockPasswordInput").value;
+      const pw = $("lockPasswordInput").value;
       if(!pw){ toast("請輸入密碼","error"); return; }
       const hash = await hashPassword(pw, state.security.salt);
       if(hash === state.security.hash){ sensitiveUnlocked = true; toast("已解鎖","success"); switchTab(tabId); }
       else toast("密碼錯誤","error");
     };
-    document.getElementById("unlockBtn").addEventListener("click", doUnlock);
-    document.getElementById("lockPasswordInput").addEventListener("keydown", (e)=>{ if(e.key==="Enter") doUnlock(); });
-    document.getElementById("forgotToggleBtn").addEventListener("click", ()=>{
-      const area = document.getElementById("forgotArea");
+    $("unlockBtn").addEventListener("click", doUnlock);
+    $("lockPasswordInput").addEventListener("keydown", (e)=>{ if(e.key==="Enter") doUnlock(); });
+    $("forgotToggleBtn").addEventListener("click", ()=>{
+      const area = $("forgotArea");
       area.classList.toggle("hidden");
       if(!area.classList.contains("hidden")) renderForgotArea(area, tabId);
     });
   } else {
-    document.getElementById("setupPasswordBtn").addEventListener("click", async ()=>{
-      const p1 = document.getElementById("setupPasswordInput").value;
-      const p2 = document.getElementById("setupPasswordInput2").value;
+    $("setupPasswordBtn").addEventListener("click", async ()=>{
+      const p1 = $("setupPasswordInput").value;
+      const p2 = $("setupPasswordInput2").value;
       if(!p1 || p1.length<4){ toast("密碼至少需 4 碼","error"); return; }
       if(p1!==p2){ toast("兩次密碼輸入不一致","error"); return; }
-      const hint = (document.getElementById("setupHintInput").value||"").trim();
-      const question = (document.getElementById("setupQuestionInput").value||"").trim();
-      const answer = document.getElementById("setupAnswerInput").value||"";
+      const hint = ($("setupHintInput").value||"").trim();
+      const question = ($("setupQuestionInput").value||"").trim();
+      const answer = $("setupAnswerInput").value||"";
       const salt = randomSaltB64();
       const hash = await hashPassword(p1, salt);
       let qHash = null, qSalt = null;
@@ -1158,32 +1201,33 @@ function renderForgotArea(area, tabId){
   }
   if(hasQuestion){
     html += `
-      <div class="field"><label>救援問題：${escapeHtml(sec.question)}</label><input type="text" id="forgotAnswerInput" placeholder="請輸入答案" autocomplete="off"></div>
-      <button class="btn btn-ghost btn-sm" id="forgotVerifyBtn">驗證答案並重設密碼</button>
-      <div id="forgotResetArea" class="hidden mt12"></div>
+      <div class="field"><label>救援問題：${escapeHtml(sec.question)}</label><input type="text" data-lock-el="forgotAnswerInput" placeholder="請輸入答案" autocomplete="off"></div>
+      <button class="btn btn-ghost btn-sm" data-lock-el="forgotVerifyBtn">驗證答案並重設密碼</button>
+      <div data-lock-el="forgotResetArea" class="hidden mt12"></div>
     `;
   }
   if(!hasHint && !hasQuestion){
     html += `<div class="note-box">尚未設定密碼提示或救援問題，無法自動找回密碼。請洽詢原本設定密碼的人員協助，或於下方清空所有資料重新開始（將刪除所有客戶、消費紀錄與設定，且無法復原）。</div>
-      <button class="btn btn-danger btn-sm mt8" id="forgotResetAllBtn">清空所有資料並重新開始</button>`;
+      <button class="btn btn-danger btn-sm mt8" data-lock-el="forgotResetAllBtn">清空所有資料並重新開始</button>`;
   }
   area.innerHTML = html;
+  const $ = (name)=> area.querySelector(`[data-lock-el="${name}"]`);
   if(hasQuestion){
-    document.getElementById("forgotVerifyBtn").addEventListener("click", async ()=>{
-      const ans = document.getElementById("forgotAnswerInput").value;
+    $("forgotVerifyBtn").addEventListener("click", async ()=>{
+      const ans = $("forgotAnswerInput").value;
       const hash = await hashPassword(normalizeAnswer(ans), sec.qSalt);
       if(hash !== sec.qHash){ toast("答案不正確","error"); return; }
-      const resetArea = document.getElementById("forgotResetArea");
+      const resetArea = $("forgotResetArea");
       resetArea.classList.remove("hidden");
       resetArea.innerHTML = `
         <div class="info-box mb8">答案正確，請設定新密碼。</div>
-        <div class="field"><label>新密碼（至少 4 碼）</label><input type="password" id="newPwAfterAnswer1" autocomplete="off"></div>
-        <div class="field"><label>再次輸入新密碼</label><input type="password" id="newPwAfterAnswer2" autocomplete="off"></div>
-        <button class="btn btn-primary btn-sm" id="newPwAfterAnswerBtn">儲存新密碼並解鎖</button>
+        <div class="field"><label>新密碼（至少 4 碼）</label><input type="password" data-lock-el="newPwAfterAnswer1" autocomplete="off"></div>
+        <div class="field"><label>再次輸入新密碼</label><input type="password" data-lock-el="newPwAfterAnswer2" autocomplete="off"></div>
+        <button class="btn btn-primary btn-sm" data-lock-el="newPwAfterAnswerBtn">儲存新密碼並解鎖</button>
       `;
-      document.getElementById("newPwAfterAnswerBtn").addEventListener("click", async ()=>{
-        const n1 = document.getElementById("newPwAfterAnswer1").value;
-        const n2 = document.getElementById("newPwAfterAnswer2").value;
+      resetArea.querySelector('[data-lock-el="newPwAfterAnswerBtn"]').addEventListener("click", async ()=>{
+        const n1 = resetArea.querySelector('[data-lock-el="newPwAfterAnswer1"]').value;
+        const n2 = resetArea.querySelector('[data-lock-el="newPwAfterAnswer2"]').value;
         if(!n1 || n1.length<4){ toast("密碼至少需 4 碼","error"); return; }
         if(n1!==n2){ toast("兩次密碼輸入不一致","error"); return; }
         const salt = randomSaltB64();
@@ -1198,7 +1242,7 @@ function renderForgotArea(area, tabId){
     });
   }
   if(!hasHint && !hasQuestion){
-    document.getElementById("forgotResetAllBtn").addEventListener("click", ()=>{
+    $("forgotResetAllBtn").addEventListener("click", ()=>{
       confirmModal({
         title:"清空所有資料", message:"此動作將清除所有客戶、調理師、消費紀錄與設定，且無法復原。確定要清空嗎？", confirmText:"清空所有資料", danger:true,
         onConfirm(){
@@ -1250,7 +1294,7 @@ function computeTherapistMonthStats(therapistId, monthKey){
   const treatmentRevenue = tiaoTx.reduce((s,t)=>s+(Number(t.amount)||0),0);
   const tier = findTier(state.commission.treatmentTiers, treatmentCount);
   const suggestedRate = tier ? tier.rate : 0;
-  const suggestedTierBonus = tier ? (tier.bonus||0) : 0;
+  const suggestedTierBonus = tier ? (tier.perPerson ? (tier.bonus||0) * Math.max(0, treatmentCount - tier.min + 1) : (tier.bonus||0)) : 0;
 
   const pillowTx = txs.filter(t => t.itemId === "it_pillow");
   const pillowQty = pillowTx.reduce((s,t)=>s+(Number(t.qty)||0),0);
@@ -2320,15 +2364,15 @@ function renderCommission(){
       <div class="mt12"><button class="btn btn-accent btn-sm" id="saveOtherRates">儲存其他項目分潤</button></div>
     </div>
   `;
-  renderTierTable("treatmentTierWrap", state.commission.treatmentTiers, "次");
-  renderTierTable("pillowTierWrap", state.commission.pillowTiers, "顆");
+  renderTierTable("treatmentTierWrap", state.commission.treatmentTiers, "次", true);
+  renderTierTable("pillowTierWrap", state.commission.pillowTiers, "顆", false);
   document.getElementById("addTreatmentTier").addEventListener("click", ()=>{
-    state.commission.treatmentTiers.push({id:uid("tt"), min:0, max:0, rate:0, bonus:0, label:"新區間"});
-    renderTierTable("treatmentTierWrap", state.commission.treatmentTiers, "次");
+    state.commission.treatmentTiers.push({id:uid("tt"), min:0, max:0, rate:0, bonus:0, perPerson:false, label:"新區間"});
+    renderTierTable("treatmentTierWrap", state.commission.treatmentTiers, "次", true);
   });
   document.getElementById("addPillowTier").addEventListener("click", ()=>{
     state.commission.pillowTiers.push({id:uid("pt"), min:0, max:0, rate:0, bonus:0, label:"新區間"});
-    renderTierTable("pillowTierWrap", state.commission.pillowTiers, "顆");
+    renderTierTable("pillowTierWrap", state.commission.pillowTiers, "顆", false);
   });
   document.getElementById("saveTreatmentTiers").addEventListener("click", ()=>{ collectTierInputs("treatmentTierWrap", state.commission.treatmentTiers); saveState(); toast("已儲存調理分潤設定","success"); });
   document.getElementById("savePillowTiers").addEventListener("click", ()=>{ collectTierInputs("pillowTierWrap", state.commission.pillowTiers); saveState(); toast("已儲存枕頭分潤設定","success"); });
@@ -2350,10 +2394,10 @@ function renderCommission(){
     saveState(); toast("已儲存其他項目分潤","success");
   });
 }
-function renderTierTable(wrapId, tiers, unitLabel){
+function renderTierTable(wrapId, tiers, unitLabel, showPerPerson){
   document.getElementById(wrapId).innerHTML = `
     <div class="table-wrap mt12"><table>
-      <thead><tr><th>說明</th><th class="num">最少${unitLabel}</th><th class="num">最多${unitLabel}</th><th class="num">分潤比例／每單位</th><th class="num">額外固定獎金</th><th></th></tr></thead>
+      <thead><tr><th>說明</th><th class="num">最少${unitLabel}</th><th class="num">最多${unitLabel}</th><th class="num">分潤比例／每單位</th><th class="num">額外固定獎金</th>${showPerPerson?'<th style="width:110px;">每多1人遞增</th>':''}<th></th></tr></thead>
       <tbody>
         ${tiers.map((t,idx)=>`
           <tr data-tier-id="${t.id}">
@@ -2362,10 +2406,12 @@ function renderTierTable(wrapId, tiers, unitLabel){
             <td class="num"><input type="number" data-f="max" value="${t.max}" style="max-width:90px; margin-left:auto;"></td>
             <td class="num"><input type="number" step="0.01" data-f="rate" value="${t.rate}" style="max-width:100px; margin-left:auto;"></td>
             <td class="num"><input type="number" data-f="bonus" value="${t.bonus||0}" style="max-width:100px; margin-left:auto;"></td>
+            ${showPerPerson?`<td class="center"><input type="checkbox" data-f="perPerson" ${t.perPerson?'checked':''}></td>`:''}
             <td><button class="icon-btn" data-remove-tier="${t.id}" title="刪除區間">🗑</button></td>
           </tr>`).join("")}
       </tbody>
     </table></div>
+    ${showPerPerson?'<div class="faint mt8">「每多1人遞增」勾選後，該區間的「額外固定獎金」會變成：獎金金額 × (人次－最少人次＋1)，例如 91 次以上、獎金填 1000、勾選遞增，則 91 次時多 1000、92 次時多 2000，以此類推；不勾選則整個區間固定只加一次獎金金額。</div>':''}
   `;
   document.querySelectorAll(`#${wrapId} [data-remove-tier]`).forEach(btn=>{
     btn.addEventListener("click", ()=>{
@@ -2373,7 +2419,7 @@ function renderTierTable(wrapId, tiers, unitLabel){
       const arr = tiers;
       const idx = arr.findIndex(t=>t.id===id);
       if(idx>=0) arr.splice(idx,1);
-      renderTierTable(wrapId, tiers, unitLabel);
+      renderTierTable(wrapId, tiers, unitLabel, showPerPerson);
     });
   });
 }
@@ -2387,7 +2433,113 @@ function collectTierInputs(wrapId, tiers){
     t.max = Number(row.querySelector('[data-f="max"]').value)||0;
     t.rate = Number(row.querySelector('[data-f="rate"]').value)||0;
     t.bonus = Number(row.querySelector('[data-f="bonus"]').value)||0;
+    const ppInput = row.querySelector('[data-f="perPerson"]');
+    if(ppInput) t.perPerson = ppInput.checked;
   });
+}
+
+/* =======================================================
+   11b. 營運成本（固定成本／變動成本）
+   ======================================================= */
+function renderOverhead(){
+  const el = document.getElementById("panel-overhead");
+  el.innerHTML = `
+    <div class="note-box mb8">在這裡登記工作室每月／每兩個月／每週／每年固定要付的成本，系統會自動換算成「每月金額」，並計入「月結算薪資」頁面的獲利試算。</div>
+    <div class="card card-pad">
+      <div class="section-head"><h3>固定成本</h3><span class="desc">例如水電、房租、系統訂閱費等</span></div>
+      <div id="overheadFixedWrap"></div>
+      <button class="btn btn-ghost btn-sm mt12" id="addFixedCostBtn">＋ 新增固定成本項目</button>
+      <div class="mt12"><button class="btn btn-accent btn-sm" id="saveFixedCostBtn">儲存固定成本</button></div>
+    </div>
+    <div class="card card-pad mt16">
+      <div class="section-head"><h3>變動成本</h3><span class="desc">例如洗衣、耗材、獎金、聚餐等會浮動的支出</span></div>
+      <div id="overheadVariableWrap"></div>
+      <button class="btn btn-ghost btn-sm mt12" id="addVariableCostBtn">＋ 新增變動成本項目</button>
+      <div class="mt12"><button class="btn btn-accent btn-sm" id="saveVariableCostBtn">儲存變動成本</button></div>
+    </div>
+    <div class="card card-pad mt16">
+      <div class="section-head"><h3>換算後每月成本總覽</h3></div>
+      <div class="grid grid-2" id="overheadSummaryWrap"></div>
+    </div>
+  `;
+  renderOverheadTable("overheadFixedWrap", state.overheadCosts.fixed, "fixed");
+  renderOverheadTable("overheadVariableWrap", state.overheadCosts.variable, "variable");
+  renderOverheadSummary();
+
+  document.getElementById("addFixedCostBtn").addEventListener("click", ()=>{
+    state.overheadCosts.fixed.push({id:uid("oh"), name:"新項目", amount:0, cycle:"月", note:""});
+    renderOverheadTable("overheadFixedWrap", state.overheadCosts.fixed, "fixed");
+  });
+  document.getElementById("addVariableCostBtn").addEventListener("click", ()=>{
+    state.overheadCosts.variable.push({id:uid("oh"), name:"新項目", amount:0, cycle:"月", note:""});
+    renderOverheadTable("overheadVariableWrap", state.overheadCosts.variable, "variable");
+  });
+  document.getElementById("saveFixedCostBtn").addEventListener("click", ()=>{
+    collectOverheadInputs("overheadFixedWrap", state.overheadCosts.fixed);
+    saveState();
+    toast("已儲存固定成本","success");
+    renderOverheadSummary();
+  });
+  document.getElementById("saveVariableCostBtn").addEventListener("click", ()=>{
+    collectOverheadInputs("overheadVariableWrap", state.overheadCosts.variable);
+    saveState();
+    toast("已儲存變動成本","success");
+    renderOverheadSummary();
+  });
+}
+function renderOverheadTable(wrapId, list, kind){
+  document.getElementById(wrapId).innerHTML = `
+    <div class="table-wrap mt12"><table>
+      <thead><tr><th>項目名稱</th><th class="num">金額</th><th style="width:110px;">週期</th><th class="num">換算每月</th><th>備註</th><th></th></tr></thead>
+      <tbody>
+        ${list.length ? list.map(item=>`
+          <tr data-oh-id="${item.id}">
+            <td><input type="text" data-f="name" value="${escapeHtml(item.name)}"></td>
+            <td class="num"><input type="number" min="0" data-f="amount" value="${item.amount}" style="max-width:110px; margin-left:auto;"></td>
+            <td><select data-f="cycle">${COST_CYCLES.map(c=>`<option ${item.cycle===c?'selected':''}>${c}</option>`).join("")}</select></td>
+            <td class="num mono faint" data-out="monthly">${fmtMoney(monthlyEquivalent(item.amount, item.cycle))}</td>
+            <td><input type="text" data-f="note" value="${escapeHtml(item.note||'')}" placeholder="選填"></td>
+            <td><button class="icon-btn" data-remove-oh="${item.id}" title="刪除">🗑</button></td>
+          </tr>`).join("") : `<tr class="empty-row"><td colspan="6">尚未新增項目</td></tr>`}
+      </tbody>
+    </table></div>
+  `;
+  document.querySelectorAll(`#${wrapId} tr[data-oh-id]`).forEach(row=>{
+    const recompute = ()=>{
+      const amt = Number(row.querySelector('[data-f="amount"]').value)||0;
+      const cyc = row.querySelector('[data-f="cycle"]').value;
+      row.querySelector('[data-out="monthly"]').textContent = fmtMoney(monthlyEquivalent(amt, cyc));
+    };
+    row.querySelector('[data-f="amount"]').addEventListener("input", recompute);
+    row.querySelector('[data-f="cycle"]').addEventListener("change", recompute);
+  });
+  document.querySelectorAll(`#${wrapId} [data-remove-oh]`).forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const id = btn.dataset.removeOh;
+      const idx = list.findIndex(i=>i.id===id);
+      if(idx>=0) list.splice(idx,1);
+      renderOverheadTable(wrapId, list, kind);
+    });
+  });
+}
+function collectOverheadInputs(wrapId, list){
+  document.querySelectorAll(`#${wrapId} tr[data-oh-id]`).forEach(row=>{
+    const id = row.dataset.ohId;
+    const item = list.find(i=>i.id===id);
+    if(!item) return;
+    item.name = row.querySelector('[data-f="name"]').value || "未命名項目";
+    item.amount = Number(row.querySelector('[data-f="amount"]').value)||0;
+    item.cycle = row.querySelector('[data-f="cycle"]').value;
+    item.note = row.querySelector('[data-f="note"]').value || "";
+  });
+}
+function renderOverheadSummary(){
+  const fixedMonthly = totalMonthlyOverhead(state.overheadCosts.fixed);
+  const variableMonthly = totalMonthlyOverhead(state.overheadCosts.variable);
+  document.getElementById("overheadSummaryWrap").innerHTML = `
+    <div class="card stat-card"><div class="label">固定成本（每月換算）</div><div class="value">${fmtMoney(fixedMonthly)}</div></div>
+    <div class="card stat-card"><div class="label">變動成本（每月換算）</div><div class="value">${fmtMoney(variableMonthly)}</div></div>
+  `;
 }
 
 /* =======================================================
@@ -2424,44 +2576,89 @@ function renderSettlementTable(){
   const txs = monthTransactions(monthKey);
   const totalRevenue = txs.reduce((s,t)=>s+(Number(t.amount)||0),0);
   const payroll = rows.reduce((s,r)=>s+r.s.total,0);
-  const goodsCost = txs.filter(t=>t.category==="商品").reduce((s,t)=>s + (state.costs[t.itemId]||0)*(Number(t.qty)||0), 0);
-  const profit = totalRevenue - payroll - goodsCost;
+  const goodsTx = txs.filter(t=>t.category==="商品");
+  let goodsCost = 0;
+  const goodsCostDetailMap = {};
+  goodsTx.forEach(t=>{
+    const unitCost = state.costs[t.itemId]||0;
+    const qty = Number(t.qty)||0;
+    const sub = unitCost * qty;
+    goodsCost += sub;
+    if(!goodsCostDetailMap[t.itemId]) goodsCostDetailMap[t.itemId] = {name:t.itemName, qty:0, unitCost, sub:0};
+    goodsCostDetailMap[t.itemId].qty += qty;
+    goodsCostDetailMap[t.itemId].sub += sub;
+  });
+  const goodsCostDetail = Object.values(goodsCostDetailMap).sort((a,b)=>b.sub-a.sub);
+  const fixedCost = totalMonthlyOverhead(state.overheadCosts.fixed);
+  const variableCost = totalMonthlyOverhead(state.overheadCosts.variable);
+  const profit = totalRevenue - payroll - goodsCost - fixedCost - variableCost;
 
   document.getElementById("settlementStudioSummary").innerHTML = `
     <div class="grid grid-4 mt16">
       <div class="card stat-card"><div class="label">當月總收入</div><div class="value">${fmtMoney(totalRevenue)}</div></div>
       <div class="card stat-card"><div class="label">人事支出（薪資合計）</div><div class="value">${fmtMoney(payroll)}</div></div>
-      <div class="card stat-card"><div class="label">商品進貨成本</div><div class="value">${fmtMoney(goodsCost)}</div><div class="hint">依「項目與價目」成本設定估算</div></div>
-      <div class="card stat-card"><div class="label">估計獲利</div><div class="value" style="color:${profit>=0?'var(--success)':'var(--danger)'}">${fmtMoney(profit)}</div></div>
+      <div class="card stat-card"><div class="label">商品進貨成本</div><div class="value">${fmtMoney(goodsCost)}</div><div class="hint">依「項目與價目」成本設定估算，明細見下方</div></div>
+      <div class="card stat-card"><div class="label">固定＋變動成本</div><div class="value">${fmtMoney(fixedCost+variableCost)}</div><div class="hint">固定 ${fmtMoney(fixedCost)}／變動 ${fmtMoney(variableCost)}，依「營運成本」換算</div></div>
     </div>
+    <div class="grid grid-2 mt16">
+      <div class="card stat-card"><div class="label">支出合計</div><div class="value">${fmtMoney(payroll+goodsCost+fixedCost+variableCost)}</div></div>
+      <div class="card stat-card"><span class="tag ${profit>=0?'tag-good':''}" style="background:${profit>=0?'':'var(--danger-soft)'}; color:${profit>=0?'':'var(--danger)'};">${profit>=0?'獲利':'虧損'}</span><div class="label">估計獲利</div><div class="value" style="color:${profit>=0?'var(--success)':'var(--danger)'}">${fmtMoney(profit)}</div></div>
+    </div>
+    ${goodsCostDetail.length ? `
+    <div class="card card-pad mt16">
+      <div class="section-head"><h3>商品進貨成本明細（${monthKey.slice(0,4)}年${Number(monthKey.slice(5,7))}月）</h3><span class="desc">= 各商品「進貨成本」設定 × 當月售出數量，加總而成</span></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>商品名稱</th><th class="num">售出數量</th><th class="num">單位進貨成本</th><th class="num">小計</th></tr></thead>
+          <tbody>
+            ${goodsCostDetail.map(d=>`<tr><td>${escapeHtml(d.name)}</td><td class="num mono">${fmtNum(d.qty)}</td><td class="num mono">${fmtMoney(d.unitCost)}</td><td class="num mono" style="font-weight:700;">${fmtMoney(d.sub)}</td></tr>`).join("")}
+            <tr><td colspan="3" style="text-align:right; font-weight:700;">合計</td><td class="num mono" style="font-weight:700; color:var(--primary-dark);">${fmtMoney(goodsCost)}</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="faint mt8">若某商品成本看起來不對，可到「項目與價目」頁面調整該商品的「進貨成本」設定。</div>
+    </div>
+    ` : ''}
   `;
 
   document.getElementById("settlementTableWrap").innerHTML = `
     <div class="table-wrap">
-      <table>
+      <table style="table-layout:fixed;">
         <thead><tr>
-          <th>調理師</th><th class="num">調理次數</th><th class="num">調理金額</th><th class="num">建議比例</th>
-          <th class="num">分潤比例(可調整)</th><th class="num">調理分潤</th>
-          <th class="num">枕頭數量</th><th class="num">枕頭分潤(可調整)</th>
-          <th class="num">其他項目分潤</th><th class="num">團隊獎金(可調整)</th>
-          <th class="num">總薪資</th><th></th>
+          <th style="width:120px;">調理師</th>
+          <th class="num col-divide" style="width:64px;">一般人次</th>
+          <th class="num col-divide" style="width:64px;">選手人次</th>
+          <th class="num" style="width:96px;">調理金額</th>
+          <th class="num" style="width:76px;">建議比例</th>
+          <th class="num" style="width:84px;">分潤比例<br>(可調整)</th>
+          <th class="num col-divide" style="width:92px;">調理分潤</th>
+          <th class="num" style="width:64px;">枕頭數量</th>
+          <th class="num col-divide" style="width:92px;">枕頭分潤<br>(可調整)</th>
+          <th class="num" style="width:92px;">其他項目<br>分潤</th>
+          <th class="num col-divide" style="width:92px;">團隊獎金<br>(可調整)</th>
+          <th class="num" style="width:100px;">總薪資</th>
+          <th style="width:92px;"></th>
         </tr></thead>
         <tbody>
-          ${rows.length ? rows.map(({th,s})=>`
+          ${rows.length ? rows.map(({th,s})=>{
+            const b = therapistTreatmentBreakdown(th.id, monthKey);
+            return `
             <tr data-settle-row="${th.id}">
               <td>${escapeHtml(th.name)} <span class="pill pill-${th.level}">${th.level}</span></td>
-              <td class="num mono">${fmtNum(s.treatmentCount)}</td>
+              <td class="num mono col-divide">${fmtNum(b.general)}</td>
+              <td class="num mono col-divide">${fmtNum(b.athlete)}</td>
               <td class="num mono">${fmtMoney(s.treatmentRevenue)}</td>
               <td class="num faint">${(s.suggestedRate*100).toFixed(0)}%${s.suggestedTierBonus?`+${fmtMoney(s.suggestedTierBonus)}`:''}</td>
-              <td class="num"><input type="number" step="0.01" min="0" max="1" data-settle="rate" value="${s.rate}" style="max-width:90px; margin-left:auto;"></td>
-              <td class="num mono" data-out="treatmentPay">${fmtMoney(s.treatmentPay)}</td>
+              <td class="num"><input type="number" step="0.01" min="0" max="1" data-settle="rate" value="${s.rate}" style="max-width:80px; margin-left:auto;"></td>
+              <td class="num mono col-divide" data-out="treatmentPay">${fmtMoney(s.treatmentPay)}</td>
               <td class="num mono">${fmtNum(s.pillowQty)}</td>
-              <td class="num"><input type="number" min="0" data-settle="pillow" value="${s.pillowPay}" style="max-width:100px; margin-left:auto;"></td>
+              <td class="num col-divide"><input type="number" min="0" data-settle="pillow" value="${s.pillowPay}" style="max-width:90px; margin-left:auto;"></td>
               <td class="num mono" title="${s.otherDetail.map(d=>d.itemName+'×'+d.qty+'='+Math.round(d.amount)).join(', ')||'—'}">${fmtMoney(s.otherTotal)}</td>
-              <td class="num"><input type="number" min="0" data-settle="teamBonus" value="${s.teamBonus}" style="max-width:100px; margin-left:auto;"></td>
-              <td class="num mono" style="font-weight:700;" data-out="total">${fmtMoney(s.total)}</td>
+              <td class="num col-divide"><input type="number" min="0" data-settle="teamBonus" value="${s.teamBonus}" style="max-width:90px; margin-left:auto;"></td>
+              <td class="num mono" style="font-weight:700; color:var(--primary-dark);" data-out="total">${fmtMoney(s.total)}</td>
               <td><button class="btn btn-ghost btn-sm" data-reset-settle="${th.id}">還原建議值</button></td>
-            </tr>`).join("") : `<tr class="empty-row"><td colspan="12">目前沒有在職調理師</td></tr>`}
+            </tr>`;
+          }).join("") : `<tr class="empty-row"><td colspan="13">目前沒有在職調理師</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -3004,6 +3201,7 @@ const RENDERERS = {
   therapists: renderTherapists,
   items: renderItems,
   commission: renderCommission,
+  overhead: renderOverhead,
   settlement: renderSettlement,
   mypay: renderMyPay,
   backup: renderBackup,
