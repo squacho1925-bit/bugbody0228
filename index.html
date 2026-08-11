@@ -749,6 +749,14 @@ function withTimeout(promise, ms, message){
     new Promise((_, reject) => setTimeout(()=> reject(new Error(message||"連線逾時，請確認網路或 Firebase 設定")), ms))
   ]);
 }
+async function retrySet(ref, value){
+  try{
+    return await ref.set(value);
+  }catch(e){
+    console.warn("[雲端同步] 寫入失敗，自動重試一次…", e);
+    return await ref.set(value);
+  }
+}
 
 function scheduleCloudPush(){
   if(cloudPushTimer) clearTimeout(cloudPushTimer);
@@ -791,7 +799,7 @@ async function cloudConnect(configText, syncCode){
     firebaseApp = firebase.initializeApp(config, "studioApp_"+Date.now());
     console.log("[雲端同步] 開始匿名登入…");
     try{
-      await withTimeout(firebaseApp.auth().signInAnonymously(), 9000, "登入逾時（9秒）：請確認 Firebase 主控台的 Authentication → Sign-in method 已啟用「匿名 Anonymous」，並確認網路連線正常");
+      await withTimeout(firebaseApp.auth().signInAnonymously(), 15000, "登入逾時（15秒）：請確認 Firebase 主控台的 Authentication → Sign-in method 已啟用「匿名 Anonymous」，並確認網路連線正常");
       console.log("[雲端同步] 匿名登入成功");
     }catch(authErr){
       console.error("[雲端同步] 匿名登入失敗", authErr);
@@ -805,7 +813,7 @@ async function cloudConnect(configText, syncCode){
     let snap;
     console.log("[雲端同步] 開始讀取雲端資料…");
     try{
-      snap = await withTimeout(firebaseDbRef.once("value"), 9000, "讀取雲端資料逾時（9秒），請確認 databaseURL 是否正確、Realtime Database 是否已建立");
+      snap = await withTimeout(firebaseDbRef.once("value"), 15000, "讀取雲端資料逾時（15秒），請確認 databaseURL 是否正確、Realtime Database 是否已建立");
       console.log("[雲端同步] 讀取完成", snap.val());
     }catch(readErr){
       console.error("[雲端同步] 讀取資料失敗", readErr);
@@ -826,7 +834,7 @@ async function cloudConnect(configText, syncCode){
     if(!remote || !remote.items){
       console.log("[雲端同步] 雲端尚無資料，開始上傳本機資料當作起點…");
       try{
-        await withTimeout(firebaseDbRef.set(state), 9000, "上傳初始資料逾時（9秒），請確認 Realtime Database 安全規則是否允許寫入（測試模式應可寫入，若已自訂規則請確認條件）");
+        await withTimeout(retrySet(firebaseDbRef, state), 30000, "上傳初始資料逾時（30秒），請確認 Realtime Database 安全規則是否允許寫入（測試模式應可寫入，若已自訂規則請確認條件），或目前網路對 Firebase 寫入連線較不穩定");
         console.log("[雲端同步] 初始資料上傳完成");
       }catch(writeErr){
         console.error("[雲端同步] 上傳初始資料失敗", writeErr);
@@ -850,7 +858,7 @@ async function cloudConnect(configText, syncCode){
             (async ()=>{
               console.log("[雲端同步] 使用者選擇改用本機資料覆蓋雲端…");
               try{
-                await withTimeout(firebaseDbRef.set(state), 15000, "上傳資料逾時，請稍後再試一次");
+                await withTimeout(retrySet(firebaseDbRef, state), 30000, "上傳資料逾時，請稍後再試一次");
                 console.log("[雲端同步] 覆蓋雲端完成");
                 finish();
                 toast("已用本機資料覆蓋雲端","success");
@@ -866,7 +874,7 @@ async function cloudConnect(configText, syncCode){
       } else {
         console.log("[雲端同步] 本機資料較新，開始上傳覆蓋雲端…");
         try{
-          await withTimeout(firebaseDbRef.set(state), 9000, "上傳資料逾時（9秒），請確認 Realtime Database 安全規則是否允許寫入");
+          await withTimeout(retrySet(firebaseDbRef, state), 30000, "上傳資料逾時（30秒），請確認 Realtime Database 安全規則是否允許寫入，或目前網路對 Firebase 寫入連線較不穩定");
           console.log("[雲端同步] 上傳完成");
         }catch(writeErr){
           console.error("[雲端同步] 上傳資料失敗", writeErr);
@@ -2857,16 +2865,22 @@ function wireCloudSyncSection(){
     if(!syncCode || !syncCode.trim()){ toast("請先輸入同步代碼","error"); return; }
     const originalLabel = connectBtn.textContent;
     connectBtn.disabled = true;
-    connectBtn.textContent = "連線中…請稍候";
-    toast("開始連線，請稍候（首次連線可能需要幾秒）","info");
+    let elapsed = 0;
+    connectBtn.textContent = "連線中…請稍候（0秒）";
+    const tickTimer = setInterval(()=>{
+      elapsed += 1;
+      if(document.body.contains(connectBtn)) connectBtn.textContent = `連線中…請稍候（${elapsed}秒）`;
+    }, 1000);
+    toast("開始連線，請稍候（網路較慢時可能需要 30 秒以上，請耐心等候，畫面不會消失）","info");
     try{
-      await withTimeout(cloudConnect(configText, syncCode), 25000, "整體連線流程逾時（25秒），請重新整理頁面後再試一次，並將 Console 訊息截圖回報");
+      await withTimeout(cloudConnect(configText, syncCode), 70000, "整體連線流程逾時（70秒），請重新整理頁面後再試一次，並將 Console 訊息截圖回報");
     } catch(e){
       cloudLastError = e.message;
       toast("連線失敗："+e.message, "error");
       cloudConnecting = false;
       if(activeTab==="backup") renderBackup();
     } finally {
+      clearInterval(tickTimer);
       if(document.body.contains(connectBtn)){
         connectBtn.disabled = false;
         connectBtn.textContent = originalLabel;
