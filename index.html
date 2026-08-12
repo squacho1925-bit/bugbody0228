@@ -1118,7 +1118,7 @@ const SETTINGS_SECTIONS = [
 ];
 let activeSettingsSection = "therapists";
 let activeTab = "dashboard";
-const LOCKED_TABS = ["dashboard"];
+const LOCKED_TABS = [];
 let sensitiveUnlocked = false;
 let myPayTherapistId = null;
 
@@ -1445,45 +1445,66 @@ function renderDashboard(){
   const now = new Date();
   const monthKey = now.toISOString().slice(0,7);
   const txThisMonth = monthTransactions(monthKey);
-  const revenue = txThisMonth.reduce((s,t)=>s+(Number(t.amount)||0),0);
   const treatmentCount = txThisMonth.filter(t=>t.itemId==="it_tiao").reduce((s,t)=>s+(Number(t.qty)||0),0);
   const distinctCustomers = new Set(txThisMonth.map(t=>t.customerId).filter(Boolean)).size;
   const activeTherapists = state.therapists.filter(t=>t.status==="active");
-  const payroll = activeTherapists.reduce((s,th)=>s+computeTherapistSettlement(th.id, monthKey).total, 0);
 
-  // last 6 months revenue for chart
+  // 近 6 個月調理人次（不涉及金額）
   const months = [];
   for(let i=5;i>=0;i--){
     const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
     const key = d.toISOString().slice(0,7);
-    const rev = monthTransactions(key).reduce((s,t)=>s+(Number(t.amount)||0),0);
-    months.push({key, label: `${d.getMonth()+1}月`, rev});
+    const cnt = monthTransactions(key).filter(t=>t.itemId==="it_tiao").reduce((s,t)=>s+(Number(t.qty)||0),0);
+    months.push({key, label: `${d.getMonth()+1}月`, cnt});
   }
-  const maxRev = Math.max(1, ...months.map(m=>m.rev));
+  const maxCnt = Math.max(1, ...months.map(m=>m.cnt));
   const barW = 60, gap = 22, chartH = 140;
   const bars = months.map((m,i)=>{
-    const h = Math.round((m.rev/maxRev) * (chartH-24));
+    const h = Math.round((m.cnt/maxCnt) * (chartH-24));
     const x = i*(barW+gap)+10;
     const y = chartH - h;
     return `<rect x="${x}" y="${y}" width="${barW}" height="${h}" rx="6" fill="${i===5?'var(--accent)':'var(--primary-soft)'}"></rect>
       <text x="${x+barW/2}" y="${chartH+18}" text-anchor="middle" font-size="11" fill="var(--ink-soft)">${m.label}</text>
-      <text x="${x+barW/2}" y="${y-6}" text-anchor="middle" font-size="10.5" fill="var(--ink-soft)">${m.rev>0? Math.round(m.rev/1000)+'k':''}</text>`;
+      <text x="${x+barW/2}" y="${y-6}" text-anchor="middle" font-size="10.5" fill="var(--ink-soft)">${m.cnt>0? fmtNum(m.cnt):''}</text>`;
   }).join("");
   const chartW = months.length*(barW+gap)+10;
+
+  // 團隊本月人次排行（不顯示金額）
+  const leaderboard = activeTherapists.map(t=>{
+    const b = therapistTreatmentBreakdown(t.id, monthKey);
+    return {name:t.name, level:t.level, total:b.general+b.athlete};
+  }).sort((a,b)=>b.total-a.total);
+  const topTherapist = leaderboard[0];
+
+  // 本月熱門項目（依銷售數量，不顯示金額）
+  const itemCountMap = {};
+  txThisMonth.forEach(t=>{
+    if(!itemCountMap[t.itemName]) itemCountMap[t.itemName] = 0;
+    itemCountMap[t.itemName] += Number(t.qty)||0;
+  });
+  const topItems = Object.entries(itemCountMap).map(([name,qty])=>({name,qty})).sort((a,b)=>b.qty-a.qty).slice(0,5);
+
+  // 本月壽星
+  const curMonthNum = now.getMonth()+1;
+  const birthdayCustomers = state.customers.filter(c=>{
+    if(!c.birthDate) return false;
+    const m = Number(c.birthDate.slice(5,7));
+    return m === curMonthNum;
+  }).sort((a,b)=> Number(a.birthDate.slice(8,10)) - Number(b.birthDate.slice(8,10)));
 
   const recent = state.transactions.slice().sort((a,b)=> (b.date+b.id).localeCompare(a.date+a.id)).slice(0,8);
 
   el.innerHTML = `
     <div class="grid grid-4">
-      <div class="card stat-card"><span class="tag tag-good">本月</span><div class="label">本月營收</div><div class="value">${fmtMoney(revenue)}</div><div class="hint">共 ${txThisMonth.length} 筆消費紀錄</div></div>
       <div class="card stat-card"><div class="label">本月調理人次</div><div class="value">${fmtNum(treatmentCount)}</div><div class="hint">來自「調理」項目加總</div></div>
       <div class="card stat-card"><div class="label">本月來客數</div><div class="value">${fmtNum(distinctCustomers)}</div><div class="hint">不重複客戶數</div></div>
-      <div class="card stat-card"><span class="tag tag-warn">試算</span><div class="label">本月薪資試算合計</div><div class="value">${fmtMoney(payroll)}</div><div class="hint">尚未於「月結算」頁面儲存前為預估值</div></div>
+      <div class="card stat-card"><div class="label">本月消費筆數</div><div class="value">${fmtNum(txThisMonth.length)}</div><div class="hint">所有類別消費紀錄總數</div></div>
+      <div class="card stat-card"><span class="tag tag-good">團隊</span><div class="label">本月人次最高</div><div class="value" style="font-size:20px;">${topTherapist? escapeHtml(topTherapist.name) : '—'}</div><div class="hint">${topTherapist? `${fmtNum(topTherapist.total)} 人次｜${topTherapist.level} 級` : '尚無資料'}</div></div>
     </div>
 
     <div class="grid grid-2 mt16" style="align-items:start;">
       <div class="card card-pad">
-        <div class="section-head"><h3>近 6 個月營收</h3></div>
+        <div class="section-head"><h3>近 6 個月調理人次</h3></div>
         <div class="chart-wrap">
           <svg width="100%" viewBox="0 0 ${chartW} ${chartH+34}" preserveAspectRatio="xMinYMid meet">${bars}</svg>
         </div>
@@ -1493,12 +1514,40 @@ function renderDashboard(){
         <div class="section-head"><h3>快速動作</h3></div>
         <div class="small-btn-row">
           <button class="btn btn-primary" data-action="add-transaction">${icon('plus')} 新增一筆消費紀錄</button>
-          <button class="btn btn-ghost" data-settings-jump="settlement">前往月結算薪資</button>
           <button class="btn btn-ghost" data-nav-jump="customers">新增客戶</button>
-          <button class="btn btn-ghost" data-settings-jump="therapists">管理調理師</button>
+          <button class="btn btn-ghost" data-nav-jump="transactions">查看消費紀錄</button>
         </div>
         <div class="divider"></div>
         <div class="info-box">目前共有 <b>${state.therapists.length}</b> 位調理師（在職 ${activeTherapists.length} 位）、<b>${state.customers.length}</b> 位客戶、<b>${state.transactions.length}</b> 筆消費紀錄。</div>
+      </div>
+    </div>
+
+    <div class="grid grid-2 mt16" style="align-items:start;">
+      <div class="card card-pad">
+        <div class="section-head"><h3>本月熱門項目</h3><span class="desc">依銷售數量排序</span></div>
+        ${topItems.length ? `
+          <div class="table-wrap" style="border:none;">
+            <table>
+              <thead><tr><th>項目</th><th class="num">銷售數量</th></tr></thead>
+              <tbody>
+                ${topItems.map((it,i)=>`<tr><td>${i===0?'🏆 ':''}${escapeHtml(it.name)}</td><td class="num mono">${fmtNum(it.qty)}</td></tr>`).join("")}
+              </tbody>
+            </table>
+          </div>
+        ` : `<div class="faint mt8">本月尚無消費紀錄</div>`}
+      </div>
+      <div class="card card-pad">
+        <div class="section-head"><h3>本月壽星</h3><span class="desc">記得送上祝福🎂</span></div>
+        ${birthdayCustomers.length ? `
+          <div class="table-wrap" style="border:none;">
+            <table>
+              <thead><tr><th>客戶</th><th>生日</th></tr></thead>
+              <tbody>
+                ${birthdayCustomers.map(c=>`<tr><td>${escapeHtml(c.code?c.code+' ':'')}${escapeHtml(c.name)}</td><td class="mono">${Number(c.birthDate.slice(5,7))}/${Number(c.birthDate.slice(8,10))}</td></tr>`).join("")}
+              </tbody>
+            </table>
+          </div>
+        ` : `<div class="faint mt8">本月沒有記錄到客戶生日（可於客戶管理補上完整生日）</div>`}
       </div>
     </div>
 
