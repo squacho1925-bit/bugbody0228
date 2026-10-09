@@ -354,7 +354,29 @@ const MONTH_NAMES = ["1月","2月","3月","4月","5月","6月","7月","8月","9�
 function uid(prefix){ return (prefix||"id") + "_" + Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
 function fmtMoney(n){ n = Math.round(Number(n)||0); return "NT$" + n.toLocaleString("zh-Hant-TW"); }
 function fmtNum(n){ return (Number(n)||0).toLocaleString("zh-Hant-TW"); }
-function todayStr(){ const d = new Date(); return d.toISOString().slice(0,10); }
+function localDateStr(d){ d = d || new Date(); const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${day}`; }
+function localMonthKey(d){ d = d || new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
+// 自製月份下拉選單：取代瀏覽器原生 <input type="month">，避免部分瀏覽器（如桌面版 Firefox／舊版 Safari）
+// 不支援月份選取介面、只能手動輸入文字而無法正常選擇月份的問題。rangeMonths 可往前回溯的月份數（含當月）。
+function monthSelectHTML(id, selectedKey, rangeMonths){
+  rangeMonths = rangeMonths || 36;
+  const now = new Date();
+  let options = "";
+  let hasSelected = false;
+  for(let i=0; i<rangeMonths; i++){
+    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+    const key = localMonthKey(d);
+    if(key === selectedKey) hasSelected = true;
+    options += `<option value="${key}" ${key===selectedKey?'selected':''}>${d.getFullYear()}年${d.getMonth()+1}月</option>`;
+  }
+  // 若目前選定的月份超出回溯範圍（例如查看很久以前的歷史資料），額外補一個選項避免選取狀態消失
+  if(!hasSelected && selectedKey){
+    const [y,m] = selectedKey.split("-").map(Number);
+    if(y && m) options = `<option value="${selectedKey}" selected>${y}年${m}月</option>` + options;
+  }
+  return `<select id="${id}">${options}</select>`;
+}
+function todayStr(){ return localDateStr(new Date()); }
 function monthKeyOf(dateStr){ return (dateStr||"").slice(0,7); }
 function clamp0(n){ return n < 0 ? 0 : n; }
 function escapeHtml(s){
@@ -471,7 +493,7 @@ function findItemByNameCategory(category, name){
 function findTherapistByName(name){
   name = (name||"").trim();
   if(!name) return null;
-  return state.therapists.find(t=>t.name===name) || null;
+  return state.therapists.find(t=>(t.name||"").trim()===name) || null;
 }
 function findCustomerByCodeOrName(text){
   text = (text||"").trim();
@@ -513,7 +535,7 @@ function mapImportedTransactionRow(row){
 
   let unitPrice = unitPriceRaw==="" ? NaN : Number(unitPriceRaw);
   if(isNaN(unitPrice)){
-    unitPrice = unitPriceFor(item.id, therapist?therapist.id:"", item.id==="it_tiao"?customerType:"");
+    unitPrice = unitPriceFor(item.id, therapist?therapist.id:"", item.id==="it_tiao"?customerType:"", date);
   }
   let amount = amountRaw==="" ? NaN : Number(amountRaw);
   if(isNaN(amount)){
@@ -591,6 +613,8 @@ function renderImportPreview(valid, invalid, kind){
   if(kind==="transaction"){
     const custWarn = valid.filter(r=>!r.customerMatched).length;
     if(custWarn) extraNote += `<div class="faint mt8">有 ${custWarn} 筆客戶未在主檔中比對到，將以文字方式記錄為現場客。</div>`;
+    const thWarn = valid.filter(r=>!r.therapistMatched).length;
+    if(thWarn) extraNote += `<div class="faint mt8" style="color:var(--danger);">⚠️ 有 ${thWarn} 筆調理師姓名未在「調理師管理」主檔中比對到，這些紀錄將無法計入該調理師的月結薪資（僅以文字記錄調理師姓名）。請確認調理師姓名與主檔完全一致（含全半形、空格），或先至「調理師管理」新增對應調理師後，再重新匯入這些紀錄。</div>`;
   }
   area.innerHTML = `
     <div class="mt12 flex gap10" style="flex-wrap:wrap;">
@@ -633,7 +657,9 @@ function commitImport(kind, rows){
     rows.forEach(r=>{
       const dup = state.therapists.find(t=> t.name===r.name);
       if(dup){ skipped++; return; }
-      state.therapists.push({id:uid("th"), name:r.name, level:r.level, phone:r.phone||"", joinDate:r.joinDate||todayStr(), status:r.status||"active", note:r.note||""});
+      const jd = r.joinDate||todayStr();
+      state.therapists.push({id:uid("th"), name:r.name, level:r.level, phone:r.phone||"", joinDate:jd, status:r.status||"active", note:r.note||"",
+        pinHash:null, pinSalt:null, levelHistory:[{id:uid("lh"), date:jd, level:r.level, note:"初始等級（匯入建立）"}]});
       added++;
     });
     saveState();
@@ -698,8 +724,10 @@ function defaultState(){
   items.forEach(it => { costs[it.id] = costMap[it.id] || 0; });
 
   const therapists = [
-    {id:"th_demo_a", name:"王大明（範例）", level:"A", phone:"", status:"active", joinDate:todayStr(), note:"示範資料，可編輯或刪除", pinHash:null, pinSalt:null},
-    {id:"th_demo_b", name:"李小華（範例）", level:"B", phone:"", status:"active", joinDate:todayStr(), note:"示範資料，可編輯或刪除", pinHash:null, pinSalt:null},
+    {id:"th_demo_a", name:"王大明（範例）", level:"A", phone:"", status:"active", joinDate:todayStr(), note:"示範資料，可編輯或刪除", pinHash:null, pinSalt:null,
+      levelHistory:[{id:uid("lh"), date:todayStr(), level:"A", note:"初始等級"}]},
+    {id:"th_demo_b", name:"李小華（範例）", level:"B", phone:"", status:"active", joinDate:todayStr(), note:"示範資料，可編輯或刪除", pinHash:null, pinSalt:null,
+      levelHistory:[{id:uid("lh"), date:todayStr(), level:"B", note:"初始等級"}]},
   ];
 
   const customers = [
@@ -785,6 +813,11 @@ function loadState(){
       parsed.therapists.forEach(t=>{
         if(t.pinHash===undefined) t.pinHash = null;
         if(t.pinSalt===undefined) t.pinSalt = null;
+        // 資料轉換：舊資料沒有「等級變更歷程」，以目前等級＋到職日（或今天）建立第一筆記錄，
+        // 確保往後新增的消費紀錄與月結薪資都能找到對應的歷史等級。
+        if(!Array.isArray(t.levelHistory) || t.levelHistory.length===0){
+          t.levelHistory = [{id:uid("lh"), date: t.joinDate || "2000-01-01", level: t.level, note:"(資料轉換自動建立)"}];
+        }
       });
     }
     if(!parsed.cloudSync) parsed.cloudSync = {firebaseConfigRaw:"", syncCode:"", lastSyncedAt:null};
@@ -1312,19 +1345,53 @@ document.getElementById("menuToggle").addEventListener("click", ()=> document.ge
 /* =======================================================
    5. 計算輔助（定價 / 分潤）
    ======================================================= */
-function unitPriceFor(itemId, therapistId, customerType){
+function levelAsOfDate(therapist, dateStr){
+  if(!therapist) return "A";
+  const hist = (therapist.levelHistory||[]).filter(h=>h && h.date).slice().sort((a,b)=>a.date.localeCompare(b.date));
+  if(!hist.length) return therapist.level;
+  dateStr = dateStr || todayStr();
+  let applicable = null;
+  for(const h of hist){
+    if(h.date <= dateStr) applicable = h;
+    else break;
+  }
+  // 若消費日期早於所有已知歷程記錄（例如補登早期資料），採用最早一筆已知等級，避免回推出不存在的等級
+  return applicable ? applicable.level : hist[0].level;
+}
+function unitPriceFor(itemId, therapistId, customerType, dateStr){
   const item = byId(state.items, itemId);
   if(!item) return 0;
   if(item.id === "it_tiao"){
     if(customerType === "選手") return Number(state.pricing.athleteFee)||0;
     const th = byId(state.therapists, therapistId);
-    const lvl = th ? th.level : "A";
+    const lvl = th ? levelAsOfDate(th, dateStr) : "A";
     return Number(state.pricing.levelFee[lvl])||0;
   }
   return Number(item.price)||0;
 }
 function findTier(tiers, n){
   return tiers.slice().sort((a,b)=>a.min-b.min).find(t => n >= t.min && n <= t.max) || null;
+}
+function repairTransactionLinks(){
+  let thFixed = 0, custFixed = 0;
+  state.transactions.forEach(t=>{
+    if(!t.therapistId && t.therapistName){
+      const th = findTherapistByName(t.therapistName);
+      if(th){ t.therapistId = th.id; thFixed++; }
+    }
+    if(!t.customerId && t.customerName){
+      const cu = findCustomerByCodeOrName(t.customerName);
+      if(cu){ t.customerId = cu.id; custFixed++; }
+    }
+  });
+  if(thFixed || custFixed){
+    saveState();
+    toast(`已修復 ${thFixed} 筆調理師比對、${custFixed} 筆客戶比對，請重新查看月結算／儀表板`, "success");
+    if(activeTab==="transactions") renderTxTable();
+    if(activeTab==="dashboard") renderDashboard();
+  } else {
+    toast("沒有找到可修復的紀錄（姓名可能與主檔仍不一致，或本來就沒有遺漏）","info");
+  }
 }
 function monthTransactions(monthKey){
   return state.transactions.filter(t => monthKeyOf(t.date) === monthKey);
@@ -1443,7 +1510,7 @@ function nextCustomerCode(){
 function renderDashboard(){
   const el = document.getElementById("panel-dashboard");
   const now = new Date();
-  const monthKey = now.toISOString().slice(0,7);
+  const monthKey = localMonthKey(now);
   const txThisMonth = monthTransactions(monthKey);
   const treatmentCount = txThisMonth.filter(t=>t.itemId==="it_tiao").reduce((s,t)=>s+(Number(t.qty)||0),0);
   const distinctCustomers = new Set(txThisMonth.map(t=>t.customerId).filter(Boolean)).size;
@@ -1453,7 +1520,7 @@ function renderDashboard(){
   const months = [];
   for(let i=5;i>=0;i--){
     const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
-    const key = d.toISOString().slice(0,7);
+    const key = localMonthKey(d);
     const cnt = monthTransactions(key).filter(t=>t.itemId==="it_tiao").reduce((s,t)=>s+(Number(t.qty)||0),0);
     months.push({key, label: `${d.getMonth()+1}月`, cnt});
   }
@@ -1595,6 +1662,7 @@ function renderTransactions(){
   document.getElementById("topbarActions").innerHTML = `
     <button class="btn btn-ghost" id="downloadTxTemplateBtn">下載空白範本</button>
     <button class="btn btn-ghost" id="importTxBtn">批次匯入 Excel</button>
+    <button class="btn btn-ghost" id="repairLinksBtn" title="重新比對未連結的調理師／客戶姓名">修復調理師／客戶比對</button>
     <button class="btn btn-primary" data-action="add-transaction">${icon('plus')} 新增消費紀錄</button>
   `;
   document.getElementById("downloadTxTemplateBtn").addEventListener("click", ()=>{
@@ -1605,6 +1673,7 @@ function renderTransactions(){
     );
   });
   document.getElementById("importTxBtn").addEventListener("click", ()=> openImportModal("transaction"));
+  document.getElementById("repairLinksBtn").addEventListener("click", repairTransactionLinks);
 
   el.innerHTML = `
     <div class="card card-pad">
@@ -1932,7 +2001,8 @@ function recalcTxAmount(){
   const itemId = document.getElementById("txfItem").value;
   const therapistId = document.getElementById("txfTherapist").value;
   const customerType = document.getElementById("txfCustomerType").value;
-  let unitPrice = unitPriceFor(itemId, therapistId, customerType);
+  const date = document.getElementById("txfDate") ? document.getElementById("txfDate").value : "";
+  let unitPrice = unitPriceFor(itemId, therapistId, customerType, date);
   document.getElementById("txfUnitPrice").value = unitPrice;
   updateAmountField();
 }
@@ -1955,6 +2025,7 @@ function openTransactionModal(tx, draft){
       document.getElementById("txfItem").addEventListener("change", ()=>{ toggleCustomerTypeVisibility(); recalcTxAmount(); });
       document.getElementById("txfTherapist").addEventListener("change", recalcTxAmount);
       document.getElementById("txfCustomerType").addEventListener("change", recalcTxAmount);
+      document.getElementById("txfDate").addEventListener("change", recalcTxAmount);
       document.getElementById("txfQty").addEventListener("input", updateAmountField);
       document.getElementById("txfDiscount").addEventListener("input", updateAmountField);
       document.getElementById("txfUnitPrice").addEventListener("input", updateAmountField);
@@ -2197,18 +2268,19 @@ function renderTherapists(container){
     );
   });
   document.getElementById("importThBtn").addEventListener("click", ()=> openImportModal("therapist"));
-  const now = new Date(); const monthKey = now.toISOString().slice(0,7);
+  const now = new Date(); const monthKey = localMonthKey(now);
   el.innerHTML = `
-    <div class="note-box mb8">調理師的「等級」會決定一般客人調理服務的單價（於「項目與價目」頁面設定各等級費用）。可為每位調理師設定「查薪 PIN」，讓對方於「我的薪資查詢」頁面自行查看個人薪資，不會看到其他人資料。</div>
+    <div class="note-box mb8">調理師的「等級」會決定一般客人調理服務的單價（於「項目與價目」頁面設定各等級費用）。可為每位調理師設定「查薪 PIN」，讓對方於「我的薪資查詢」頁面自行查看個人薪資，不會看到其他人資料。若調理師有晉升／調整等級的情況，請用「編輯」裡的「等級變更歷程」記錄生效日期，系統會自動依消費日期套用正確的等級與費用。</div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>姓名</th><th>等級</th><th>電話</th><th>狀態</th><th>到職日</th><th class="num">本月調理人數（一般）</th><th class="num">本月調理人數（選手）</th><th>查薪PIN</th><th>備註</th><th>操作</th></tr></thead>
+        <thead><tr><th>姓名</th><th>目前等級</th><th>電話</th><th>狀態</th><th>到職日</th><th class="num">本月調理人數（一般）</th><th class="num">本月調理人數（選手）</th><th>查薪PIN</th><th>備註</th><th>操作</th></tr></thead>
         <tbody>
           ${state.therapists.length? state.therapists.map(t=>{
             const b = therapistTreatmentBreakdown(t.id, monthKey);
+            const histCount = (t.levelHistory||[]).length;
             return `<tr>
               <td>${escapeHtml(t.name)}</td>
-              <td><span class="pill pill-${t.level}">${t.level} 級</span></td>
+              <td><span class="pill pill-${t.level}">${t.level} 級</span>${histCount>1?`<div class="faint" style="margin-top:2px;">共 ${histCount} 筆等級歷程</div>`:''}</td>
               <td>${escapeHtml(t.phone||'—')}</td>
               <td><span class="pill ${t.status==='active'?'pill-good':'pill-mute'}">${t.status==='active'?'在職':'停用'}</span></td>
               <td>${escapeHtml(t.joinDate||'—')}</td>
@@ -2241,16 +2313,64 @@ function therapistFormBody(t){
       </div>
       <div class="field"><label>狀態</label><select name="status"><option value="active" ${!t||t.status==='active'?'selected':''}>在職</option><option value="inactive" ${t&&t.status==='inactive'?'selected':''}>停用</option></select></div>
       <div class="field"><label>備註</label><textarea name="note">${escapeHtml(t?t.note:'')}</textarea></div>
+      <div class="section-head mt16"><h4>等級變更歷程</h4><span class="desc">記錄「從哪一天開始」適用哪個等級，系統會依每筆消費紀錄的日期自動套用對應等級的調理費用，確保晉升前後的消費紀錄與月結薪資都正確。</span></div>
+      <div id="thHistoryTableWrap"></div>
+      <div class="form-row mt8" style="align-items:flex-end;">
+        <div class="field"><label>生效日期</label><input type="date" id="thHistAddDate" value="${todayStr()}"></div>
+        <div class="field"><label>等級</label><select id="thHistAddLevel">${LEVELS.map(l=>`<option>${l}</option>`).join("")}</select></div>
+        <div class="field grow"><label>備註(選填)</label><input type="text" id="thHistAddNote" placeholder="例如：晉升副店長"></div>
+        <button class="btn btn-ghost" type="button" id="thHistAddBtn">新增這筆</button>
+      </div>
+      <div class="faint mt8">提示：上方「等級」欄位僅用於新增調理師、或尚未建立任何歷程時的初始等級；一旦有歷程記錄，「目前等級」會以歷程中日期最新的一筆為準。</div>
     </form>
   `;
 }
+function renderThHistoryTable(wrapEl, history){
+  const sorted = history.slice().sort((a,b)=>a.date.localeCompare(b.date));
+  wrapEl.innerHTML = sorted.length ? `
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>生效日期</th><th>等級</th><th>備註</th><th></th></tr></thead>
+        <tbody>
+          ${sorted.map(h=>`<tr>
+            <td>${escapeHtml(h.date)}</td>
+            <td><span class="pill pill-${h.level}">${h.level} 級</span></td>
+            <td class="faint">${escapeHtml(h.note||'')}</td>
+            <td><button type="button" class="icon-btn" data-del-hist="${h.id}" title="刪除此筆歷程">🗑</button></td>
+          </tr>`).join("")}
+        </tbody>
+      </table>
+    </div>` : `<div class="faint">尚無歷程記錄，將以下方「等級」欄位做為目前適用等級。</div>`;
+  wrapEl.querySelectorAll('[data-del-hist]').forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const id = btn.dataset.delHist;
+      const idx = history.findIndex(h=>h.id===id);
+      if(idx>=0) history.splice(idx,1);
+      renderThHistoryTable(wrapEl, history);
+    });
+  });
+}
 function openTherapistModal(t){
+  const workingHistory = (t && Array.isArray(t.levelHistory)) ? JSON.parse(JSON.stringify(t.levelHistory)) : [];
   openModal({
     title: t?"編輯調理師":"新增調理師",
+    wide:true,
     bodyHTML: therapistFormBody(t),
     footHTML: `<button class="btn btn-ghost" id="thClearBtn" type="button" style="margin-right:auto;">清空欄位</button><button class="btn btn-ghost" data-close>取消</button><button class="btn btn-primary" id="thSaveBtn">${t?'儲存變更':'新增調理師'}</button>`,
     onOpen(){
       document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click", closeModal));
+      const histWrap = document.getElementById("thHistoryTableWrap");
+      renderThHistoryTable(histWrap, workingHistory);
+      document.getElementById("thHistAddBtn").addEventListener("click", ()=>{
+        const date = document.getElementById("thHistAddDate").value;
+        const level = document.getElementById("thHistAddLevel").value;
+        const note = document.getElementById("thHistAddNote").value.trim();
+        if(!date){ toast("請選擇生效日期","error"); return; }
+        workingHistory.push({id:uid("lh"), date, level, note});
+        renderThHistoryTable(histWrap, workingHistory);
+        document.getElementById("thHistAddNote").value = "";
+        toast("已加入歷程，請記得按下方「儲存變更」才會真正保存","info");
+      });
       document.getElementById("thClearBtn").addEventListener("click", ()=>{
         clearFormFields("thForm");
         toast("已清空欄位","info");
@@ -2259,9 +2379,24 @@ function openTherapistModal(t){
         const fd = new FormData(document.getElementById("thForm"));
         const name = (fd.get("name")||"").trim();
         if(!name){ toast("請輸入姓名","error"); return; }
-        const record = { id: t?t.id:uid("th"), name, level: fd.get("level"), phone: fd.get("phone")||"", joinDate: fd.get("joinDate")||"", status: fd.get("status"), note: fd.get("note")||"" };
-        if(t){ const idx = state.therapists.findIndex(x=>x.id===t.id); state.therapists[idx]=record; }
-        else state.therapists.push(record);
+        let level = fd.get("level");
+        let history = workingHistory.slice();
+        if(!history.length){
+          history.push({id:uid("lh"), date: fd.get("joinDate")||todayStr(), level, note:"初始等級"});
+        } else {
+          const latest = history.slice().sort((a,b)=>a.date.localeCompare(b.date)).pop();
+          level = latest.level;
+        }
+        const record = { id: t?t.id:uid("th"), name, level, phone: fd.get("phone")||"", joinDate: fd.get("joinDate")||"", status: fd.get("status"), note: fd.get("note")||"", levelHistory: history };
+        if(t){
+          // 保留原有 PIN 設定，避免編輯其他欄位（包含新增等級歷程）時意外清空已設定的查薪 PIN
+          record.pinHash = t.pinHash;
+          record.pinSalt = t.pinSalt;
+          const idx = state.therapists.findIndex(x=>x.id===t.id); state.therapists[idx]=record;
+        } else {
+          record.pinHash = null; record.pinSalt = null;
+          state.therapists.push(record);
+        }
         saveState(); closeModal(); toast(t?"已更新調理師":"已新增調理師","success"); refreshSettingsSection("therapists");
       });
     }
@@ -2672,7 +2807,7 @@ function renderOverheadSummary(){
 /* =======================================================
    12. 月結算薪資
    ======================================================= */
-let settlementMonth = new Date().toISOString().slice(0,7);
+let settlementMonth = localMonthKey(new Date());
 function renderSettlement(container){
   const el = container || document.getElementById("panel-settlement");
   document.getElementById("topbarActions").innerHTML = `
@@ -2681,7 +2816,7 @@ function renderSettlement(container){
   el.innerHTML = `
     <div class="card card-pad">
       <div class="toolbar">
-        <div class="field"><label>結算月份</label><input type="month" id="settlementMonthInput" value="${settlementMonth}"></div>
+        <div class="field"><label>結算月份</label>${monthSelectHTML("settlementMonthInput", settlementMonth)}</div>
         <button class="btn btn-primary" id="settlementRecalc">重新試算</button>
         <button class="btn btn-accent" id="settlementSaveAll">儲存本月所有調整</button>
       </div>
@@ -2835,7 +2970,7 @@ function saveSettlementAll(){
 /* =======================================================
    12b. 我的薪資查詢（調理師本人專用，個人 PIN 驗證）
    ======================================================= */
-let myPayMonth = new Date().toISOString().slice(0,7);
+let myPayMonth = localMonthKey(new Date());
 function renderMyPay(){
   const el = document.getElementById("panel-mypay");
   document.getElementById("topbarActions").innerHTML = "";
@@ -2888,7 +3023,7 @@ function renderMyPayDashboard(el, th){
   const base = new Date(myPayMonth+"-01");
   for(let i=5;i>=0;i--){
     const d = new Date(base.getFullYear(), base.getMonth()-i, 1);
-    const key = d.toISOString().slice(0,7);
+    const key = localMonthKey(d);
     months.push({key, label:`${d.getFullYear()}/${d.getMonth()+1}`, total: computeTherapistSettlement(th.id, key).total});
   }
   el.innerHTML = `
@@ -2898,7 +3033,7 @@ function renderMyPayDashboard(el, th){
           <h3>${escapeHtml(th.name)} <span class="pill pill-${th.level}">${th.level} 級</span></h3>
           <div class="faint mt8">僅顯示您個人的薪資資料，其他調理師與店內營收資訊不會顯示於此頁面。</div>
         </div>
-        <div class="field" style="margin-bottom:0;"><label>查詢月份</label><input type="month" id="myPayMonthInput" value="${myPayMonth}"></div>
+        <div class="field" style="margin-bottom:0;"><label>查詢月份</label>${monthSelectHTML("myPayMonthInput", myPayMonth)}</div>
       </div>
     </div>
     <div class="grid grid-4 mt16">
