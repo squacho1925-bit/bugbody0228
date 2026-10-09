@@ -796,37 +796,57 @@ function defaultState(){
 
 let state = loadState();
 
+// 資料正規化／轉換：把任何「舊版本資料結構」補齊成目前版本需要的欄位。
+// 無論資料來源是本機 localStorage（loadState）、還是雲端同步下載／即時監聽收到的資料
+// （cloudConnect、attachFirebaseListener），都必須經過這裡，否則舊結構的資料（或是由
+// 還沒更新到最新版網頁的其他裝置所寫入雲端的資料）會缺少新欄位，導致月結算薪資等頁面
+// 因為存取不存在的屬性而整頁無法顯示。
+function normalizeState(parsed){
+  if(!parsed || !parsed.items) return defaultState();
+  if(!parsed.meta) parsed.meta = {studioName:"悠活手調工作室", tagline:"NORMCORE"};
+  if(!parsed.meta.tagline) parsed.meta.tagline = "NORMCORE";
+  if(!parsed.security) parsed.security = {hash:null, salt:null, hint:"", question:"", qHash:null, qSalt:null};
+  if(parsed.security.hint===undefined) parsed.security.hint = "";
+  if(parsed.security.question===undefined) parsed.security.question = "";
+  if(parsed.security.qHash===undefined) parsed.security.qHash = null;
+  if(parsed.security.qSalt===undefined) parsed.security.qSalt = null;
+  if(Array.isArray(parsed.therapists)){
+    parsed.therapists.forEach(t=>{
+      if(t.pinHash===undefined) t.pinHash = null;
+      if(t.pinSalt===undefined) t.pinSalt = null;
+      // 資料轉換：舊資料沒有「等級變更歷程」，以目前等級＋到職日（或今天）建立第一筆記錄，
+      // 確保往後新增的消費紀錄與月結薪資都能找到對應的歷史等級。
+      if(!Array.isArray(t.levelHistory) || t.levelHistory.length===0){
+        t.levelHistory = [{id:uid("lh"), date: t.joinDate || "2000-01-01", level: t.level, note:"(資料轉換自動建立)"}];
+      }
+    });
+  } else {
+    parsed.therapists = [];
+  }
+  if(!Array.isArray(parsed.customers)) parsed.customers = [];
+  if(!Array.isArray(parsed.transactions)) parsed.transactions = [];
+  if(!parsed.settlements) parsed.settlements = {};
+  if(!parsed.costs) parsed.costs = {};
+  if(!parsed.cloudSync) parsed.cloudSync = {firebaseConfigRaw:"", syncCode:"", lastSyncedAt:null};
+  if(parsed.cloudSync.firebaseConfigRaw===undefined) parsed.cloudSync = {firebaseConfigRaw:"", syncCode:"", lastSyncedAt:null};
+  if(!parsed.commission) parsed.commission = {treatmentTiers:[], pillowTiers:[], otherRates:{}};
+  if(!Array.isArray(parsed.commission.treatmentTiers)) parsed.commission.treatmentTiers = [];
+  if(!Array.isArray(parsed.commission.pillowTiers)) parsed.commission.pillowTiers = [];
+  if(!parsed.commission.otherRates) parsed.commission.otherRates = {};
+  parsed.commission.treatmentTiers.forEach(t=>{ if(t.perPerson===undefined) t.perPerson = false; });
+  if(!parsed.pricing) parsed.pricing = {levelFee:{A:3000,B:2000,C:1500,D:600}, athleteFee:1000};
+  if(!parsed.pricing.levelFee) parsed.pricing.levelFee = {A:3000,B:2000,C:1500,D:600};
+  if(!parsed.overheadCosts) parsed.overheadCosts = {fixed:[], variable:[]};
+  if(!Array.isArray(parsed.overheadCosts.fixed)) parsed.overheadCosts.fixed = [];
+  if(!Array.isArray(parsed.overheadCosts.variable)) parsed.overheadCosts.variable = [];
+  return parsed;
+}
 function loadState(){
   try{
     const raw = localStorage.getItem(STORAGE_KEY);
     if(!raw) return defaultState();
     const parsed = JSON.parse(raw);
-    if(!parsed || !parsed.items) return defaultState();
-    if(!parsed.meta) parsed.meta = {studioName:"悠活手調工作室", tagline:"NORMCORE"};
-    if(!parsed.meta.tagline) parsed.meta.tagline = "NORMCORE";
-    if(!parsed.security) parsed.security = {hash:null, salt:null, hint:"", question:"", qHash:null, qSalt:null};
-    if(parsed.security.hint===undefined) parsed.security.hint = "";
-    if(parsed.security.question===undefined) parsed.security.question = "";
-    if(parsed.security.qHash===undefined) parsed.security.qHash = null;
-    if(parsed.security.qSalt===undefined) parsed.security.qSalt = null;
-    if(Array.isArray(parsed.therapists)){
-      parsed.therapists.forEach(t=>{
-        if(t.pinHash===undefined) t.pinHash = null;
-        if(t.pinSalt===undefined) t.pinSalt = null;
-        // 資料轉換：舊資料沒有「等級變更歷程」，以目前等級＋到職日（或今天）建立第一筆記錄，
-        // 確保往後新增的消費紀錄與月結薪資都能找到對應的歷史等級。
-        if(!Array.isArray(t.levelHistory) || t.levelHistory.length===0){
-          t.levelHistory = [{id:uid("lh"), date: t.joinDate || "2000-01-01", level: t.level, note:"(資料轉換自動建立)"}];
-        }
-      });
-    }
-    if(!parsed.cloudSync) parsed.cloudSync = {firebaseConfigRaw:"", syncCode:"", lastSyncedAt:null};
-    if(parsed.cloudSync.firebaseConfigRaw===undefined) parsed.cloudSync = {firebaseConfigRaw:"", syncCode:"", lastSyncedAt:null};
-    if(parsed.commission && Array.isArray(parsed.commission.treatmentTiers)){
-      parsed.commission.treatmentTiers.forEach(t=>{ if(t.perPerson===undefined) t.perPerson = false; });
-    }
-    if(!parsed.overheadCosts) parsed.overheadCosts = {fixed:[], variable:[]};
-    return parsed;
+    return normalizeState(parsed);
   }catch(e){
     console.error("讀取本機資料失敗，改用預設範例資料", e);
     return defaultState();
@@ -961,7 +981,7 @@ async function cloudConnect(configText, syncCode){
           confirmText:"下載雲端資料", cancelText:"改用本機覆蓋",
           onConfirm(){
             applyingRemoteUpdate = true;
-            state = remote;
+            state = normalizeState(remote);
             applyingRemoteUpdate = false;
             finish();
           },
@@ -1016,7 +1036,7 @@ function attachFirebaseListener(){
     if(remoteTime > localTime){
       applyingRemoteUpdate = true;
       const cs = state.cloudSync;
-      state = remote;
+      state = normalizeState(remote);
       state.cloudSync = cs;
       state.cloudSync.lastSyncedAt = new Date().toISOString();
       sensitiveUnlocked = false;
@@ -3294,9 +3314,7 @@ function renderBackup(container){
             if(firebaseDbRef){ try{ firebaseDbRef.off(); }catch(e){} }
             if(firebaseApp){ try{ firebaseApp.delete(); }catch(e){} }
             firebaseApp = null; firebaseDbRef = null; firebaseListenerAttached = false;
-            state = data;
-            if(!state.security) state.security = {hash:null, salt:null};
-            if(!state.cloudSync) state.cloudSync = {firebaseConfigRaw:"", syncCode:"", lastSyncedAt:null};
+            state = normalizeState(data);
             sensitiveUnlocked = false;
             saveState();
             toast("已匯入備份資料","success");
