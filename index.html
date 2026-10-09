@@ -1393,6 +1393,65 @@ function repairTransactionLinks(){
     toast("沒有找到可修復的紀錄（姓名可能與主檔仍不一致，或本來就沒有遺漏）","info");
   }
 }
+// 掃描所有「調理」消費紀錄，依「調理師等級變更歷程」重新算出該筆消費日期當時應適用的等級與單價，
+// 修正因晉升時間點（或調理師比對修復後）造成的單價／費用錯誤。選手價格固定不受等級影響，不列入檢查。
+function scanTreatmentPricingMismatches(){
+  const mismatches = [];
+  let noTherapistCount = 0;
+  state.transactions.forEach(t=>{
+    if(t.itemId !== "it_tiao") return;
+    if(t.customerType === "選手") return;
+    if(!t.therapistId){ noTherapistCount++; return; }
+    const th = byId(state.therapists, t.therapistId);
+    if(!th) return;
+    const correctPrice = unitPriceFor(t.itemId, t.therapistId, t.customerType, t.date);
+    const storedPrice = Number(t.unitPrice)||0;
+    if(correctPrice !== storedPrice){
+      mismatches.push({t, th, correctPrice, storedPrice});
+    }
+  });
+  return {mismatches, noTherapistCount};
+}
+function repairTreatmentPricing(){
+  const {mismatches, noTherapistCount} = scanTreatmentPricingMismatches();
+  if(!mismatches.length){
+    toast(`沒有發現需要修正的調理費用單價${noTherapistCount?`（另有 ${noTherapistCount} 筆尚無調理師比對，請先執行「修復調理師／客戶比對」後再試一次）`:''}`, "info");
+    return;
+  }
+  const previewRows = mismatches.slice(0,20).map(m=>
+    `<tr><td>${escapeHtml(m.t.date)}</td><td>${escapeHtml(m.th.name)}</td><td><span class="pill pill-${levelAsOfDate(m.th, m.t.date)}">${levelAsOfDate(m.th, m.t.date)} 級</span></td><td class="num mono">${fmtMoney(m.storedPrice)}</td><td class="num mono" style="font-weight:700; color:var(--primary-dark);">${fmtMoney(m.correctPrice)}</td></tr>`
+  ).join("");
+  openModal({
+    title: "修復調理費用單價",
+    wide: true,
+    bodyHTML: `
+      <p style="line-height:1.7;">掃描到 <b>${mismatches.length}</b> 筆「調理」消費紀錄的單價，與調理師在「消費日期當天」應適用的等級費用不符（常見原因：等級變更歷程是事後才補建立或修改的）。確認修復後，將依每筆消費日期重新計算正確單價與費用金額（折扣金額維持不變）。</p>
+      ${noTherapistCount ? `<div class="note-box mb8">另有 ${noTherapistCount} 筆因尚未比對到調理師主檔而無法檢查，請先執行「修復調理師／客戶比對」後再重新檢查一次。</div>` : ""}
+      <div class="table-wrap" style="max-height:320px; overflow:auto;">
+        <table>
+          <thead><tr><th>日期</th><th>調理師</th><th>當時等級</th><th class="num">原單價</th><th class="num">修復後單價</th></tr></thead>
+          <tbody>${previewRows}</tbody>
+        </table>
+      </div>
+      ${mismatches.length>20 ? `<div class="faint mt8">僅預覽前 20 筆，確認修復後會套用全部 ${mismatches.length} 筆。</div>` : ""}
+    `,
+    footHTML: `<button class="btn btn-ghost" data-close>取消</button><button class="btn btn-primary" id="repairPricingConfirmBtn">確認修復 ${mismatches.length} 筆</button>`,
+    onOpen(){
+      document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click", closeModal));
+      document.getElementById("repairPricingConfirmBtn").addEventListener("click", ()=>{
+        mismatches.forEach(m=>{
+          m.t.unitPrice = m.correctPrice;
+          m.t.amount = clamp0(m.correctPrice * (Number(m.t.qty)||0) - (Number(m.t.discount)||0));
+        });
+        saveState();
+        closeModal();
+        toast(`已修復 ${mismatches.length} 筆調理費用單價，請重新查看月結算／儀表板`, "success");
+        if(activeTab==="transactions") renderTxTable();
+        if(activeTab==="dashboard") renderDashboard();
+      });
+    }
+  });
+}
 function monthTransactions(monthKey){
   return state.transactions.filter(t => monthKeyOf(t.date) === monthKey);
 }
@@ -1663,6 +1722,7 @@ function renderTransactions(){
     <button class="btn btn-ghost" id="downloadTxTemplateBtn">下載空白範本</button>
     <button class="btn btn-ghost" id="importTxBtn">批次匯入 Excel</button>
     <button class="btn btn-ghost" id="repairLinksBtn" title="重新比對未連結的調理師／客戶姓名">修復調理師／客戶比對</button>
+    <button class="btn btn-ghost" id="repairPricingBtn" title="依調理師等級變更歷程重新核對調理費用單價">修復調理費用單價</button>
     <button class="btn btn-primary" data-action="add-transaction">${icon('plus')} 新增消費紀錄</button>
   `;
   document.getElementById("downloadTxTemplateBtn").addEventListener("click", ()=>{
@@ -1674,6 +1734,7 @@ function renderTransactions(){
   });
   document.getElementById("importTxBtn").addEventListener("click", ()=> openImportModal("transaction"));
   document.getElementById("repairLinksBtn").addEventListener("click", repairTransactionLinks);
+  document.getElementById("repairPricingBtn").addEventListener("click", repairTreatmentPricing);
 
   el.innerHTML = `
     <div class="card card-pad">
