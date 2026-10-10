@@ -840,7 +840,7 @@ function defaultState(){
         {id:uid("tt"), min:51, max:60, rate:0.50, bonus:0, perPerson:false, label:"51～60 次"},
         {id:uid("tt"), min:61, max:75, rate:0.55, bonus:0, perPerson:false, label:"61～75 次"},
         {id:uid("tt"), min:76, max:90, rate:0.60, bonus:0, perPerson:false, label:"76～90 次"},
-        {id:uid("tt"), min:91, max:999999, rate:0.60, bonus:1000, perPerson:true, label:"91 次以上（每多 1 人加 1000 元）"},
+        {id:uid("tt"), min:91, max:999999, rate:0.60, bonus:100, perPerson:true, label:"91 次以上（每多 1 人加 100 元）"},
       ],
       pillowTiers:[
         {id:uid("pt"), min:1, max:4, rate:300, bonus:0, label:"1～4 顆（每顆分潤）"},
@@ -879,6 +879,8 @@ function normalizeState(parsed){
     parsed.therapists.forEach(t=>{
       if(t.pinHash===undefined) t.pinHash = null;
       if(t.pinSalt===undefined) t.pinSalt = null;
+      if(t.role!=="manager" && t.role!=="deputy") t.role = "staff";
+      t.profitPct = Number(t.profitPct)||0;
       // 資料轉換：舊資料沒有「等級變更歷程」，以目前等級＋到職日（或今天）建立第一筆記錄，
       // 確保往後新增的消費紀錄與月結薪資都能找到對應的歷史等級。
       if(!Array.isArray(t.levelHistory) || t.levelHistory.length===0){
@@ -899,6 +901,16 @@ function normalizeState(parsed){
   if(!Array.isArray(parsed.commission.pillowTiers)) parsed.commission.pillowTiers = [];
   if(!parsed.commission.otherRates) parsed.commission.otherRates = {};
   parsed.commission.treatmentTiers.forEach(t=>{ if(t.perPerson===undefined) t.perPerson = false; });
+  // 一次性調整：「91 次以上每多 1 人」遞增獎金由 1000 元下調為 100 元
+  if(!parsed.meta.bonusTier100Done){
+    parsed.commission.treatmentTiers.forEach(t=>{
+      if(t.perPerson && Number(t.min)===91 && Number(t.bonus)===1000){
+        t.bonus = 100;
+        if(/1000/.test(t.label||"")) t.label = String(t.label).replace(/1000/g,"100");
+      }
+    });
+    parsed.meta.bonusTier100Done = true;
+  }
   if(!parsed.pricing) parsed.pricing = {levelFee:{A:3000,B:2000,C:1500,D:600}, athleteFee:1000};
   if(!parsed.pricing.levelFee) parsed.pricing.levelFee = {A:3000,B:2000,C:1500,D:600};
   if(!parsed.overheadCosts) parsed.overheadCosts = {fixed:[], variable:[]};
@@ -1642,9 +1654,12 @@ function computeTherapistMonthStats(therapistId, monthKey){
   const tiaoTx = txs.filter(t => t.itemId === "it_tiao");
   const treatmentCount = tiaoTx.reduce((s,t)=>s+(Number(t.qty)||0),0);
   const treatmentRevenue = tiaoTx.reduce((s,t)=>s+(Number(t.amount)||0),0);
+  const thObj = byId(state.therapists, therapistId);
+  const isManager = !!(thObj && thObj.role === "manager");
   const tier = findTier(state.commission.treatmentTiers, treatmentCount);
-  const suggestedRate = tier ? tier.rate : 0;
-  const suggestedTierBonus = tier ? (tier.perPerson ? (tier.bonus||0) * Math.max(0, treatmentCount - tier.min + 1) : (tier.bonus||0)) : 0;
+  // 店長：不受分潤規則限制，調理金額 100% 實收，不加級距獎金
+  const suggestedRate = isManager ? 1 : (tier ? tier.rate : 0);
+  const suggestedTierBonus = isManager ? 0 : (tier ? (tier.perPerson ? (tier.bonus||0) * Math.max(0, treatmentCount - tier.min + 1) : (tier.bonus||0)) : 0);
 
   const pillowTx = txs.filter(t => t.itemId === "it_pillow");
   const pillowQty = pillowTx.reduce((s,t)=>s+(Number(t.qty)||0),0);
@@ -1665,13 +1680,13 @@ function computeTherapistMonthStats(therapistId, monthKey){
     }
   });
 
-  return {treatmentCount, treatmentRevenue, suggestedRate, suggestedTierBonus, pillowQty, suggestedPillowAmount, otherTotal, otherDetail, tierLabel: tier?tier.label:"—"};
+  return {treatmentCount, treatmentRevenue, suggestedRate, suggestedTierBonus, pillowQty, suggestedPillowAmount, otherTotal, otherDetail, tierLabel: isManager?"店長實做實收":(tier?tier.label:"—")};
 }
 function getSettlementOverride(monthKey, therapistId){
   const m = state.settlements[monthKey];
   return (m && m[therapistId]) ? m[therapistId] : null;
 }
-function computeTherapistSettlement(therapistId, monthKey){
+function settlementCore(therapistId, monthKey){
   const stats = computeTherapistMonthStats(therapistId, monthKey);
   const ov = getSettlementOverride(monthKey, therapistId);
   const rate = ov && ov.rate !== undefined && ov.rate !== null ? Number(ov.rate) : stats.suggestedRate;
@@ -1680,6 +1695,28 @@ function computeTherapistSettlement(therapistId, monthKey){
   const teamBonus = ov && ov.teamBonus !== undefined && ov.teamBonus !== null ? Number(ov.teamBonus) : 0;
   const total = treatmentPay + pillowPay + stats.otherTotal + teamBonus;
   return {...stats, rate, treatmentPay, pillowPay, teamBonus, total};
+}
+function monthGoodsCost(monthKey){
+  return monthTransactions(monthKey).filter(t=>t.category==="商品")
+    .reduce((sum,t)=> sum + (state.costs[t.itemId]||0) * (Number(t.qty)||0), 0);
+}
+// 副店長獎金的計算基礎：當月收入 − 薪資（不含副店長獲利獎金）− 商品進貨成本 − 營運成本
+function studioProfitBeforeDeputyBonus(monthKey){
+  const revenue = monthTransactions(monthKey).reduce((sum,t)=>sum+(Number(t.amount)||0),0);
+  const payroll = state.therapists.filter(t=>t.status==="active").reduce((sum,t)=>sum+settlementCore(t.id, monthKey).total,0);
+  const overhead = totalMonthlyOverhead(state.overheadCosts.fixed, monthKey) + totalMonthlyOverhead(state.overheadCosts.variable, monthKey);
+  return revenue - payroll - monthGoodsCost(monthKey) - overhead;
+}
+function computeTherapistSettlement(therapistId, monthKey){
+  const core = settlementCore(therapistId, monthKey);
+  const th = byId(state.therapists, therapistId);
+  let deputyBonus = 0, deputyBase = 0;
+  const pct = th && th.role==="deputy" ? (Number(th.profitPct)||0) : 0;
+  if(pct > 0){
+    deputyBase = studioProfitBeforeDeputyBonus(monthKey);
+    deputyBonus = Math.round(Math.max(0, deputyBase) * pct / 100);
+  }
+  return {...core, deputyBonus, deputyBase, deputyPct: pct, total: core.total + deputyBonus};
 }
 function calcAge(birthDate, birthYear){
   const today = new Date();
@@ -2504,13 +2541,14 @@ function renderTherapists(container){
     <div class="note-box mb8">調理師的「等級」會決定一般客人調理服務的單價（於「項目與價目」頁面設定各等級費用）。可為每位調理師設定「查薪 PIN」，讓對方於「我的薪資查詢」頁面自行查看個人薪資，不會看到其他人資料。若調理師有晉升／調整等級的情況，請用「編輯」裡的「等級變更歷程」記錄生效日期，系統會自動依消費日期套用正確的等級與費用。</div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>姓名</th><th>目前等級</th><th>電話</th><th>狀態</th><th>到職日</th><th class="num">本月調理人數（一般）</th><th class="num">本月調理人數（選手）</th><th>查薪PIN</th><th>備註</th><th>操作</th></tr></thead>
+        <thead><tr><th>姓名</th><th>職務</th><th>目前等級</th><th>電話</th><th>狀態</th><th>到職日</th><th class="num">本月調理人數（一般）</th><th class="num">本月調理人數（選手）</th><th>查薪PIN</th><th>備註</th><th>操作</th></tr></thead>
         <tbody>
           ${state.therapists.length? state.therapists.map(t=>{
             const b = therapistTreatmentBreakdown(t.id, monthKey);
             const histCount = (t.levelHistory||[]).length;
             return `<tr>
               <td>${escapeHtml(t.name)}</td>
+              <td>${t.role==='manager'?'<span class="pill pill-good">店長</span><div class="faint">實做實收</div>':t.role==='deputy'?`<span class="pill pill-good">副店長</span><div class="faint">獲利 ${Number(t.profitPct)||0}%</div>`:'<span class="faint">調理師</span>'}</td>
               <td><span class="pill pill-${t.level}">${t.level} 級</span>${histCount>1?`<div class="faint" style="margin-top:2px;">共 ${histCount} 筆等級歷程</div>`:''}</td>
               <td>${escapeHtml(t.phone||'—')}</td>
               <td><span class="pill ${t.status==='active'?'pill-good':'pill-mute'}">${t.status==='active'?'在職':'停用'}</span></td>
@@ -2525,7 +2563,7 @@ function renderTherapists(container){
                 <button class="icon-btn" data-action="delete-therapist" data-id="${t.id}" title="刪除">🗑</button>
               </div></td>
             </tr>`;
-          }).join("") : `<tr class="empty-row"><td colspan="10">尚無調理師資料，點右上角「新增調理師」開始建立</td></tr>`}
+          }).join("") : `<tr class="empty-row"><td colspan="11">尚無調理師資料，點右上角「新增調理師」開始建立</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -2542,6 +2580,15 @@ function therapistFormBody(t){
         <div class="field"><label>電話</label><input type="tel" name="phone" value="${escapeHtml(t?t.phone:'')}"></div>
         <div class="field"><label>到職日</label><input type="date" name="joinDate" value="${t?t.joinDate:todayStr()}"></div>
       </div>
+      <div class="form-row">
+        <div class="field"><label>職務</label><select name="role" id="thRole">
+          <option value="staff" ${!t||!t.role||t.role==='staff'?'selected':''}>一般調理師（依分潤規則）</option>
+          <option value="manager" ${t&&t.role==='manager'?'selected':''}>店長（不受分潤規則限制，調理實做實收）</option>
+          <option value="deputy" ${t&&t.role==='deputy'?'selected':''}>副店長（依分潤規則 ＋ 公司獲利％獎金）</option>
+        </select></div>
+        <div class="field" id="thPctWrap" style="${t&&t.role==='deputy'?'':'display:none;'}"><label>公司獲利獎金％</label><input type="number" name="profitPct" min="0" max="100" step="0.5" value="${t&&t.profitPct?t.profitPct:0}" placeholder="例如 5"></div>
+      </div>
+      <div class="faint" style="margin:-4px 0 12px;">職務是依「目前」狀態計算，不是逐月記錄；若中途換人擔任，已儲存過的月份請先確認結算結果。</div>
       <div class="field"><label>狀態</label><select name="status"><option value="active" ${!t||t.status==='active'?'selected':''}>在職</option><option value="inactive" ${t&&t.status==='inactive'?'selected':''}>停用</option></select></div>
       <div class="field"><label>備註</label><textarea name="note">${escapeHtml(t?t.note:'')}</textarea></div>
       <div class="section-head mt16"><h4>等級變更歷程</h4><span class="desc">記錄「從哪一天開始」適用哪個等級，系統會依每筆消費紀錄的日期自動套用對應等級的調理費用，確保晉升前後的消費紀錄與月結薪資都正確。</span></div>
@@ -2602,6 +2649,8 @@ function openTherapistModal(t){
         document.getElementById("thHistAddNote").value = "";
         toast("已加入歷程，請記得按下方「儲存變更」才會真正保存","info");
       });
+      const roleSel = document.getElementById("thRole");
+      roleSel.addEventListener("change", ()=>{ document.getElementById("thPctWrap").style.display = roleSel.value==="deputy" ? "" : "none"; });
       document.getElementById("thClearBtn").addEventListener("click", ()=>{
         clearFormFields("thForm");
         toast("已清空欄位","info");
@@ -2618,7 +2667,8 @@ function openTherapistModal(t){
           const latest = history.slice().sort((a,b)=>a.date.localeCompare(b.date)).pop();
           level = latest.level;
         }
-        const record = { id: t?t.id:uid("th"), name, level, phone: fd.get("phone")||"", joinDate: fd.get("joinDate")||"", status: fd.get("status"), note: fd.get("note")||"", levelHistory: history };
+        const record = { id: t?t.id:uid("th"), name, level, phone: fd.get("phone")||"", joinDate: fd.get("joinDate")||"", status: fd.get("status"), note: fd.get("note")||"", levelHistory: history,
+          role: fd.get("role")||"staff", profitPct: fd.get("role")==="deputy" ? (Number(fd.get("profitPct"))||0) : 0 };
         if(t){
           // 保留原有 PIN 設定，避免編輯其他欄位（包含新增等級歷程）時意外清空已設定的查薪 PIN
           record.pinHash = t.pinHash;
@@ -3440,6 +3490,7 @@ function renderSettlementTable(){
           <th class="num col-divide" style="width:92px;">枕頭分潤<br>(可調整)</th>
           <th class="num" style="width:92px;">其他項目<br>分潤</th>
           <th class="num col-divide" style="width:92px;">團隊獎金<br>(可調整)</th>
+          <th class="num" style="width:96px;">副店長<br>獲利獎金</th>
           <th class="num" style="width:100px;">總薪資</th>
           <th style="width:92px;"></th>
         </tr></thead>
@@ -3448,7 +3499,7 @@ function renderSettlementTable(){
             const b = therapistTreatmentBreakdown(th.id, monthKey);
             return `
             <tr data-settle-row="${th.id}">
-              <td>${escapeHtml(th.name)} <span class="pill pill-${th.level}">${th.level}</span></td>
+              <td>${escapeHtml(th.name)} <span class="pill pill-${th.level}">${th.level}</span>${th.role==='manager'?' <span class="pill pill-good">店長</span>':''}${th.role==='deputy'?' <span class="pill pill-good">副店長</span>':''}</td>
               <td class="num mono col-divide">${fmtNum(b.general)}</td>
               <td class="num mono col-divide">${fmtNum(b.athlete)}</td>
               <td class="num mono">${fmtMoney(s.treatmentRevenue)}</td>
@@ -3459,14 +3510,15 @@ function renderSettlementTable(){
               <td class="num col-divide"><input type="number" min="0" data-settle="pillow" value="${s.pillowPay}" style="max-width:90px; margin-left:auto;"></td>
               <td class="num mono" title="${s.otherDetail.map(d=>d.itemName+'×'+d.qty+'='+Math.round(d.amount)).join(', ')||'—'}">${fmtMoney(s.otherTotal)}</td>
               <td class="num col-divide"><input type="number" min="0" data-settle="teamBonus" value="${s.teamBonus}" style="max-width:90px; margin-left:auto;"></td>
+              <td class="num mono" data-deputy-bonus="${s.deputyBonus}" title="${s.deputyPct?('獲利基礎 '+fmtMoney(s.deputyBase)+' × '+s.deputyPct+'%'):''}">${s.deputyPct?fmtMoney(s.deputyBonus):'—'}</td>
               <td class="num mono" style="font-weight:700; color:var(--primary-dark);" data-out="total">${fmtMoney(s.total)}</td>
               <td><button class="btn btn-ghost btn-sm" data-reset-settle="${th.id}">還原建議值</button></td>
             </tr>`;
-          }).join("") : `<tr class="empty-row"><td colspan="13">目前沒有在職調理師</td></tr>`}
+          }).join("") : `<tr class="empty-row"><td colspan="14">目前沒有在職調理師</td></tr>`}
         </tbody>
       </table>
     </div>
-    <div class="faint mt12">提示：滑鼠移到「其他項目分潤」欄位可看到明細；調整「分潤比例」「枕頭分潤」「團隊獎金」後，需按上方「儲存本月所有調整」才會保留。</div>
+    <div class="faint mt12">提示：「店長」調理金額 100% 實收（不受分潤規則限制）；「副店長獲利獎金」＝（當月收入 − 薪資（不含此獎金）− 商品成本 − 營運成本）× 設定％，虧損時為 0，儲存後會連同其他人的調整一併重算。滑鼠移到「其他項目分潤」欄位可看到明細；調整「分潤比例」「枕頭分潤」「團隊獎金」後，需按上方「儲存本月所有調整」才會保留。</div>
   `;
 
   document.querySelectorAll('[data-settle-row]').forEach(row=>{
@@ -3489,7 +3541,8 @@ function recomputeSettleRow(thId, monthKey){
   const pillow = Number(row.querySelector('[data-settle="pillow"]').value)||0;
   const teamBonus = Number(row.querySelector('[data-settle="teamBonus"]').value)||0;
   const treatmentPay = stats.treatmentRevenue*rate + stats.suggestedTierBonus;
-  const total = treatmentPay + pillow + stats.otherTotal + teamBonus;
+  const dEl = row.querySelector('[data-deputy-bonus]');
+  const total = treatmentPay + pillow + stats.otherTotal + teamBonus + (dEl ? Number(dEl.dataset.deputyBonus)||0 : 0);
   row.querySelector('[data-out="treatmentPay"]').textContent = fmtMoney(treatmentPay);
   row.querySelector('[data-out="total"]').textContent = fmtMoney(total);
 }
@@ -3594,6 +3647,7 @@ function renderMyPayDashboard(el, th){
             <tr><td>枕頭銷售分潤</td><td class="num mono">${fmtMoney(s.pillowPay)}</td></tr>
             <tr><td>其他項目分潤${s.otherDetail.length?`（${s.otherDetail.map(d=>d.itemName+'×'+d.qty).join('、')}）`:''}</td><td class="num mono">${fmtMoney(s.otherTotal)}</td></tr>
             <tr><td>團隊獎金</td><td class="num mono">${fmtMoney(s.teamBonus)}</td></tr>
+            ${s.deputyPct?`<tr><td>副店長獲利獎金（工作室當月獲利 × ${s.deputyPct}%）</td><td class="num mono">${fmtMoney(s.deputyBonus)}</td></tr>`:''}
             <tr><td style="font-weight:700;">總薪資</td><td class="num mono" style="font-weight:700;">${fmtMoney(s.total)}</td></tr>
           </tbody>
         </table>
