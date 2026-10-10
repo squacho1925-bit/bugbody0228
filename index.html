@@ -877,6 +877,12 @@ function normalizeState(parsed){
   if(parsed.security.qSalt===undefined) parsed.security.qSalt = null;
   if(Array.isArray(parsed.therapists)){
     parsed.therapists.forEach(t=>{
+      // 職務改為隨「晉升歷程」記錄：舊版直接存在調理師身上的職務，搬到最新一筆歷程
+      if(Array.isArray(t.levelHistory) && t.levelHistory.length && (t.role==="manager"||t.role==="deputy")
+         && !t.levelHistory.some(h=>h && h.role)){
+        const latest = t.levelHistory.slice().sort((a,b)=>String(a.date).localeCompare(String(b.date))).pop();
+        latest.role = t.role; latest.profitPct = Number(t.profitPct)||0;
+      }
       if(t.pinHash===undefined) t.pinHash = null;
       if(t.pinSalt===undefined) t.pinSalt = null;
       if(t.role!=="manager" && t.role!=="deputy") t.role = "staff";
@@ -884,8 +890,9 @@ function normalizeState(parsed){
       // 資料轉換：舊資料沒有「等級變更歷程」，以目前等級＋到職日（或今天）建立第一筆記錄，
       // 確保往後新增的消費紀錄與月結薪資都能找到對應的歷史等級。
       if(!Array.isArray(t.levelHistory) || t.levelHistory.length===0){
-        t.levelHistory = [{id:uid("lh"), date: t.joinDate || "2000-01-01", level: t.level, note:"(資料轉換自動建立)"}];
+        t.levelHistory = [{id:uid("lh"), date: t.joinDate || "2000-01-01", level: t.level, note:"(資料轉換自動建立)", role: (t.role==="manager"||t.role==="deputy")?t.role:"staff", profitPct: Number(t.profitPct)||0}];
       }
+      { const cr = roleAsOfDate(t, "9999-12-31"); t.role = cr.role; t.profitPct = cr.profitPct; }
     });
   } else {
     parsed.therapists = [];
@@ -1530,6 +1537,22 @@ document.getElementById("menuToggle").addEventListener("click", ()=> document.ge
 /* =======================================================
    5. 計算輔助（定價 / 分潤）
    ======================================================= */
+const ROLE_LABELS = {staff:"一般調理師", manager:"店長", deputy:"副店長"};
+// 依日期取得職務（含副店長獲利％）：歷程中沒填職務的紀錄，沿用前一筆的職務
+function roleAsOfDate(therapist, dateStr){
+  if(!therapist) return {role:"staff", profitPct:0};
+  const hist = (therapist.levelHistory||[]).filter(h=>h && h.date).slice().sort((a,b)=>a.date.localeCompare(b.date));
+  dateStr = dateStr || todayStr();
+  let cur = {role:"staff", profitPct:0};
+  let any = false;
+  for(const h of hist){
+    if(h.date > dateStr && any) break;
+    if(h.role==="manager"||h.role==="deputy"||h.role==="staff") cur = {role:h.role, profitPct:Number(h.profitPct)||0};
+    any = true;
+  }
+  return cur;
+}
+function roleForMonth(therapist, monthKey){ return roleAsOfDate(therapist, monthKey + "-31"); }
 function levelAsOfDate(therapist, dateStr){
   if(!therapist) return "A";
   const hist = (therapist.levelHistory||[]).filter(h=>h && h.date).slice().sort((a,b)=>a.date.localeCompare(b.date));
@@ -1655,7 +1678,7 @@ function computeTherapistMonthStats(therapistId, monthKey){
   const treatmentCount = tiaoTx.reduce((s,t)=>s+(Number(t.qty)||0),0);
   const treatmentRevenue = tiaoTx.reduce((s,t)=>s+(Number(t.amount)||0),0);
   const thObj = byId(state.therapists, therapistId);
-  const isManager = !!(thObj && thObj.role === "manager");
+  const isManager = !!(thObj && roleForMonth(thObj, monthKey).role === "manager");
   const tier = findTier(state.commission.treatmentTiers, treatmentCount);
   // 店長：不受分潤規則限制，調理金額 100% 實收，不加級距獎金
   const suggestedRate = isManager ? 1 : (tier ? tier.rate : 0);
@@ -1711,7 +1734,8 @@ function computeTherapistSettlement(therapistId, monthKey){
   const core = settlementCore(therapistId, monthKey);
   const th = byId(state.therapists, therapistId);
   let deputyBonus = 0, deputyBase = 0;
-  const pct = th && th.role==="deputy" ? (Number(th.profitPct)||0) : 0;
+  const rInfo = th ? roleForMonth(th, monthKey) : {role:"staff", profitPct:0};
+  const pct = rInfo.role==="deputy" ? (Number(rInfo.profitPct)||0) : 0;
   if(pct > 0){
     deputyBase = studioProfitBeforeDeputyBonus(monthKey);
     deputyBonus = Math.round(Math.max(0, deputyBase) * pct / 100);
@@ -2580,7 +2604,8 @@ function therapistFormBody(t){
         <div class="field"><label>電話</label><input type="tel" name="phone" value="${escapeHtml(t?t.phone:'')}"></div>
         <div class="field"><label>到職日</label><input type="date" name="joinDate" value="${t?t.joinDate:todayStr()}"></div>
       </div>
-      <div class="form-row">
+      ${(t && t.levelHistory && t.levelHistory.length) ? `<div class="info-box mb8">目前職務：<b>${ROLE_LABELS[t.role]||'一般調理師'}${t.role==='deputy'?`（獲利 ${Number(t.profitPct)||0}%）`:''}</b>。職務與等級一樣，請在下方「等級／職務變更歷程」新增晉升紀錄（含生效日期），系統會依月份套用當時的職務。</div>` : ""}
+      <div class="form-row" style="${(t && t.levelHistory && t.levelHistory.length) ? 'display:none;' : ''}">
         <div class="field"><label>職務</label><select name="role" id="thRole">
           <option value="staff" ${!t||!t.role||t.role==='staff'?'selected':''}>一般調理師（依分潤規則）</option>
           <option value="manager" ${t&&t.role==='manager'?'selected':''}>店長（不受分潤規則限制，調理實做實收）</option>
@@ -2588,14 +2613,16 @@ function therapistFormBody(t){
         </select></div>
         <div class="field" id="thPctWrap" style="${t&&t.role==='deputy'?'':'display:none;'}"><label>公司獲利獎金％</label><input type="number" name="profitPct" min="0" max="100" step="0.5" value="${t&&t.profitPct?t.profitPct:0}" placeholder="例如 5"></div>
       </div>
-      <div class="faint" style="margin:-4px 0 12px;">職務是依「目前」狀態計算，不是逐月記錄；若中途換人擔任，已儲存過的月份請先確認結算結果。</div>
+      
       <div class="field"><label>狀態</label><select name="status"><option value="active" ${!t||t.status==='active'?'selected':''}>在職</option><option value="inactive" ${t&&t.status==='inactive'?'selected':''}>停用</option></select></div>
       <div class="field"><label>備註</label><textarea name="note">${escapeHtml(t?t.note:'')}</textarea></div>
-      <div class="section-head mt16"><h4>等級變更歷程</h4><span class="desc">記錄「從哪一天開始」適用哪個等級，系統會依每筆消費紀錄的日期自動套用對應等級的調理費用，確保晉升前後的消費紀錄與月結薪資都正確。</span></div>
+      <div class="section-head mt16"><h4>等級／職務變更歷程</h4><span class="desc">記錄「從哪一天開始」適用哪個等級與職務（店長、副店長），系統會依每筆消費紀錄的日期自動套用對應等級的調理費用，確保晉升前後的消費紀錄與月結薪資都正確。</span></div>
       <div id="thHistoryTableWrap"></div>
       <div class="form-row mt8" style="align-items:flex-end;">
         <div class="field"><label>生效日期</label><input type="date" id="thHistAddDate" value="${todayStr()}"></div>
         <div class="field"><label>等級</label><select id="thHistAddLevel">${LEVELS.map(l=>`<option>${l}</option>`).join("")}</select></div>
+        <div class="field"><label>職務</label><select id="thHistAddRole">${Object.keys(ROLE_LABELS).map(k=>`<option value="${k}" ${(t?t.role:'staff')===k?'selected':''}>${ROLE_LABELS[k]}</option>`).join("")}</select></div>
+        <div class="field" id="thHistPctWrap" style="${t&&t.role==='deputy'?'':'display:none;'}"><label>獲利獎金％</label><input type="number" id="thHistAddPct" min="0" max="100" step="0.5" value="${t&&t.role==='deputy'?(Number(t.profitPct)||0):0}" style="max-width:90px;"></div>
         <div class="field grow"><label>備註(選填)</label><input type="text" id="thHistAddNote" placeholder="例如：晉升副店長"></div>
         <button class="btn btn-ghost" type="button" id="thHistAddBtn">新增這筆</button>
       </div>
@@ -2608,11 +2635,12 @@ function renderThHistoryTable(wrapEl, history){
   wrapEl.innerHTML = sorted.length ? `
     <div class="table-wrap">
       <table>
-        <thead><tr><th>生效日期</th><th>等級</th><th>備註</th><th></th></tr></thead>
+        <thead><tr><th>生效日期</th><th>等級</th><th>職務</th><th>備註</th><th></th></tr></thead>
         <tbody>
           ${sorted.map(h=>`<tr>
             <td>${escapeHtml(h.date)}</td>
             <td><span class="pill pill-${h.level}">${h.level} 級</span></td>
+            <td>${h.role==='manager'?'店長（實做實收）':h.role==='deputy'?`副店長（獲利 ${Number(h.profitPct)||0}%）`:(h.role==='staff'?'一般調理師':'<span class="faint">沿用前一筆</span>')}</td>
             <td class="faint">${escapeHtml(h.note||'')}</td>
             <td><button type="button" class="icon-btn" data-del-hist="${h.id}" title="刪除此筆歷程">🗑</button></td>
           </tr>`).join("")}
@@ -2643,14 +2671,18 @@ function openTherapistModal(t){
         const date = document.getElementById("thHistAddDate").value;
         const level = document.getElementById("thHistAddLevel").value;
         const note = document.getElementById("thHistAddNote").value.trim();
+        const role = document.getElementById("thHistAddRole").value;
+        const profitPct = role==="deputy" ? (Number(document.getElementById("thHistAddPct").value)||0) : 0;
         if(!date){ toast("請選擇生效日期","error"); return; }
-        workingHistory.push({id:uid("lh"), date, level, note});
+        workingHistory.push({id:uid("lh"), date, level, note, role, profitPct});
         renderThHistoryTable(histWrap, workingHistory);
         document.getElementById("thHistAddNote").value = "";
         toast("已加入歷程，請記得按下方「儲存變更」才會真正保存","info");
       });
       const roleSel = document.getElementById("thRole");
       roleSel.addEventListener("change", ()=>{ document.getElementById("thPctWrap").style.display = roleSel.value==="deputy" ? "" : "none"; });
+      const histRoleSel = document.getElementById("thHistAddRole");
+      histRoleSel.addEventListener("change", ()=>{ document.getElementById("thHistPctWrap").style.display = histRoleSel.value==="deputy" ? "" : "none"; });
       document.getElementById("thClearBtn").addEventListener("click", ()=>{
         clearFormFields("thForm");
         toast("已清空欄位","info");
@@ -2662,13 +2694,14 @@ function openTherapistModal(t){
         let level = fd.get("level");
         let history = workingHistory.slice();
         if(!history.length){
-          history.push({id:uid("lh"), date: fd.get("joinDate")||todayStr(), level, note:"初始等級"});
+          history.push({id:uid("lh"), date: fd.get("joinDate")||todayStr(), level, note:"初始等級",
+            role: fd.get("role")||"staff", profitPct: fd.get("role")==="deputy" ? (Number(fd.get("profitPct"))||0) : 0});
         } else {
           const latest = history.slice().sort((a,b)=>a.date.localeCompare(b.date)).pop();
           level = latest.level;
         }
-        const record = { id: t?t.id:uid("th"), name, level, phone: fd.get("phone")||"", joinDate: fd.get("joinDate")||"", status: fd.get("status"), note: fd.get("note")||"", levelHistory: history,
-          role: fd.get("role")||"staff", profitPct: fd.get("role")==="deputy" ? (Number(fd.get("profitPct"))||0) : 0 };
+        const record = { id: t?t.id:uid("th"), name, level, phone: fd.get("phone")||"", joinDate: fd.get("joinDate")||"", status: fd.get("status"), note: fd.get("note")||"", levelHistory: history };
+        { const cr = roleAsOfDate(record, "9999-12-31"); record.role = cr.role; record.profitPct = cr.profitPct; }
         if(t){
           // 保留原有 PIN 設定，避免編輯其他欄位（包含新增等級歷程）時意外清空已設定的查薪 PIN
           record.pinHash = t.pinHash;
@@ -3499,7 +3532,7 @@ function renderSettlementTable(){
             const b = therapistTreatmentBreakdown(th.id, monthKey);
             return `
             <tr data-settle-row="${th.id}">
-              <td>${escapeHtml(th.name)} <span class="pill pill-${th.level}">${th.level}</span>${th.role==='manager'?' <span class="pill pill-good">店長</span>':''}${th.role==='deputy'?' <span class="pill pill-good">副店長</span>':''}</td>
+              <td>${escapeHtml(th.name)} <span class="pill pill-${th.level}">${th.level}</span>${roleForMonth(th,monthKey).role==='manager'?' <span class="pill pill-good">店長</span>':''}${roleForMonth(th,monthKey).role==='deputy'?' <span class="pill pill-good">副店長</span>':''}</td>
               <td class="num mono col-divide">${fmtNum(b.general)}</td>
               <td class="num mono col-divide">${fmtNum(b.athlete)}</td>
               <td class="num mono">${fmtMoney(s.treatmentRevenue)}</td>
