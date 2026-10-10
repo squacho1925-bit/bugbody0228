@@ -1801,14 +1801,15 @@ function renderDashboard(){
       <div class="card stat-card"><span class="tag tag-good">團隊</span><div class="label">本月人次最高</div><div class="value" style="font-size:20px;">${topTherapist? escapeHtml(topTherapist.name) : '—'}</div><div class="hint">${topTherapist? `${fmtNum(topTherapist.total)} 人次｜${topTherapist.level} 級` : '尚無資料'}</div></div>
     </div>
 
-    <div class="grid grid-2 mt16" style="align-items:start;">
-      <div class="card card-pad">
+    <div class="grid grid-2 mt16" style="align-items:stretch;">
+      <div class="card card-pad" style="display:flex; flex-direction:column;">
         <div class="section-head"><h3>近 6 個月調理人次</h3></div>
-        <div class="chart-wrap">
+        <div class="chart-wrap" style="flex:1; display:flex; align-items:center;">
           <svg width="100%" viewBox="0 0 ${chartW} ${chartH+34}" preserveAspectRatio="xMinYMid meet">${bars}</svg>
         </div>
         <div class="chart-legend"><span><span class="legend-dot" style="background:var(--accent)"></span>本月</span><span><span class="legend-dot" style="background:var(--primary-soft)"></span>先前月份</span></div>
       </div>
+      <div style="display:flex; flex-direction:column; gap:16px; min-width:0;">
       <div class="card card-pad">
         <div class="section-head"><h3>快速動作</h3></div>
         <div class="small-btn-row">
@@ -1817,14 +1818,11 @@ function renderDashboard(){
           <button class="btn btn-ghost" data-nav-jump="transactions">查看消費紀錄</button>
         </div>
       </div>
-    </div>
-
-    <div class="grid grid-2 mt16" style="align-items:start;">
       <div class="card card-pad">
         <div class="section-head"><h3>本月熱門項目</h3><span class="desc">依銷售數量排序</span></div>
         ${topItems.length ? `
           <div class="table-wrap" style="border:none;">
-            <table>
+            <table style="min-width:0;">
               <thead><tr><th>項目</th><th class="num">銷售數量</th></tr></thead>
               <tbody>
                 ${topItems.map((it,i)=>`<tr><td>${i===0?'🏆 ':''}${escapeHtml(it.name)}</td><td class="num mono">${fmtNum(it.qty)}</td></tr>`).join("")}
@@ -1837,7 +1835,7 @@ function renderDashboard(){
         <div class="section-head"><h3>本月壽星</h3><span class="desc">記得送上祝福🎂</span></div>
         ${birthdayCustomers.length ? `
           <div class="table-wrap" style="border:none;">
-            <table>
+            <table style="min-width:0;">
               <thead><tr><th>客戶</th><th>生日</th></tr></thead>
               <tbody>
                 ${birthdayCustomers.map(c=>`<tr><td>${escapeHtml(c.code?c.code+' ':'')}${escapeHtml(c.name)}</td><td class="mono">${Number(c.birthDate.slice(5,7))}/${Number(c.birthDate.slice(8,10))}</td></tr>`).join("")}
@@ -1845,6 +1843,7 @@ function renderDashboard(){
             </table>
           </div>
         ` : `<div class="faint mt8">本月沒有記錄到客戶生日（可於客戶管理補上完整生日）</div>`}
+      </div>
       </div>
     </div>
 
