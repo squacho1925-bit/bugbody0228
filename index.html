@@ -250,6 +250,10 @@ input[type=file]{border:1px solid var(--border); border-radius:8px; padding:8px 
 .hidden{display:none !important;}
 .mt8{margin-top:8px;} .mt12{margin-top:12px;} .mt16{margin-top:16px;} .mt20{margin-top:20px;}
 .mb8{margin-bottom:8px;}
+.chip-row{display:flex; flex-wrap:wrap; gap:6px; margin-top:6px;}
+.chip{border:1px solid var(--border); background:#fff; color:var(--ink); border-radius:20px; padding:3px 12px; font-size:12px; cursor:pointer; font-family:inherit;}
+.chip:hover{border-color:var(--primary); color:var(--primary);}
+.chip.active{background:var(--primary); border-color:var(--primary); color:#fff;}
 .flex{display:flex;} .flex-wrap{flex-wrap:wrap;} .gap8{gap:8px;} .gap10{gap:10px;} .items-center{align-items:center;} .justify-between{justify-content:space-between;}
 .w-100{width:100%;}
 .pagination{display:flex; align-items:center; justify-content:center; gap:10px; padding:14px 0 4px; font-size:13px; color:var(--ink-soft);}
@@ -343,8 +347,42 @@ function monthlyEquivalent(amount, cycle){
     default: return amt;
   }
 }
-function totalMonthlyOverhead(list){
-  return (list||[]).reduce((s,i)=> s + monthlyEquivalent(i.amount, i.cycle), 0);
+// ---- 營運成本帳本：以「費用所屬月份區間」平均分攤 ----
+// 帳目欄位：{id, name, amount, startMonth:"YYYY-MM", months, paidDate, note}
+// 沒有 startMonth 的是改版前的「概算項目」（amount + cycle），仍每月以換算金額計入，直到使用者刪除。
+const OVERHEAD_PRESETS = {
+  fixed:[{name:"房租",months:1},{name:"水費",months:2,mode:"back"},{name:"電費",months:2,mode:"back"},{name:"管理費",months:1},{name:"APP",months:1},{name:"網路",months:1}],
+  variable:[{name:"洗衣",months:1},{name:"制服",months:1},{name:"貼布",months:12,mode:"fwd"},{name:"濾芯",months:12,mode:"fwd"},{name:"獎金",months:1},{name:"聚餐",months:1},{name:"衛生紙",months:1},{name:"垃圾袋",months:1},{name:"禮金禮盒",months:1}]
+};
+function monthKeyToIndex(k){ const m = String(k||"").match(/^(\d{4})-(\d{1,2})$/); return m ? Number(m[1])*12 + (Number(m[2])-1) : NaN; }
+function indexToMonthKey(i){ const y = Math.floor(i/12), m = i - y*12 + 1; return `${y}-${String(m).padStart(2,"0")}`; }
+function addMonthsKey(k, n){ return indexToMonthKey(monthKeyToIndex(k) + n); }
+function monthKeyLabel(k){ const m = String(k||"").match(/^(\d{4})-(\d{1,2})$/); return m ? `${m[1]}/${Number(m[2])}` : String(k||""); }
+function costSpanLabel(item){
+  if(!item.startMonth) return `舊版概算（${item.cycle||'月'}）`;
+  const n = Math.max(1, Math.round(Number(item.months)||1));
+  const a = monthKeyLabel(item.startMonth);
+  return n>1 ? `${a} ～ ${monthKeyLabel(addMonthsKey(item.startMonth, n-1))}` : a;
+}
+function costMonthlyPortion(item, monthKey){
+  if(!item.startMonth) return monthlyEquivalent(item.amount, item.cycle);
+  const s0 = monthKeyToIndex(item.startMonth), t = monthKeyToIndex(monthKey);
+  const n = Math.max(1, Math.round(Number(item.months)||1));
+  if(isNaN(s0) || isNaN(t) || t < s0 || t >= s0 + n) return 0;
+  return (Number(item.amount)||0) / n;
+}
+function totalMonthlyOverhead(list, monthKey){
+  return (list||[]).reduce((sum,i)=> sum + costMonthlyPortion(i, monthKey), 0);
+}
+function overheadDetailForMonth(monthKey){
+  const out = [];
+  ["fixed","variable"].forEach(kind=>{
+    ((state.overheadCosts && state.overheadCosts[kind])||[]).forEach(it=>{
+      const portion = costMonthlyPortion(it, monthKey);
+      if(portion > 0) out.push({kind, name:it.name, amount:Number(it.amount)||0, span:costSpanLabel(it), portion, legacy:!it.startMonth});
+    });
+  });
+  return out.sort((a,b)=> a.kind.localeCompare(b.kind) || b.portion - a.portion);
 }
 const CUSTOMER_TYPES = ["一般","選手"];
 const GENDERS = ["男","女","其他"];
@@ -358,12 +396,13 @@ function localDateStr(d){ d = d || new Date(); const y=d.getFullYear(), m=String
 function localMonthKey(d){ d = d || new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
 // 自製月份下拉選單：取代瀏覽器原生 <input type="month">，避免部分瀏覽器（如桌面版 Firefox／舊版 Safari）
 // 不支援月份選取介面、只能手動輸入文字而無法正常選擇月份的問題。rangeMonths 可往前回溯的月份數（含當月）。
-function monthSelectHTML(id, selectedKey, rangeMonths){
+function monthSelectHTML(id, selectedKey, rangeMonths, futureMonths){
   rangeMonths = rangeMonths || 36;
+  futureMonths = futureMonths || 0;
   const now = new Date();
   let options = "";
   let hasSelected = false;
-  for(let i=0; i<rangeMonths; i++){
+  for(let i=-futureMonths; i<rangeMonths; i++){
     const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
     const key = localMonthKey(d);
     if(key === selectedKey) hasSelected = true;
@@ -747,7 +786,7 @@ function defaultState(){
 
   return {
     version:1,
-    meta:{studioName:"悠活手調工作室", tagline:"NORMCORE", updatedAt:new Date().toISOString()},
+    meta:{studioName:"悠活手調工作室", tagline:"NORMCORE", updatedAt:new Date().toISOString(), rev:0},
     therapists, customers, items,
     pricing:{ levelFee:{A:3000,B:1500,C:1000,D:600}, athleteFee:1000 },
     commission:{
@@ -771,26 +810,7 @@ function defaultState(){
     settlements:{},
     security:{hash:null, salt:null, hint:"", question:"", qHash:null, qSalt:null},
     cloudSync:{firebaseConfigRaw:"", syncCode:"", lastSyncedAt:null},
-    overheadCosts:{
-      fixed:[
-        {id:uid("oh"), name:"水費", amount:250, cycle:"兩個月", note:""},
-        {id:uid("oh"), name:"電費", amount:5000, cycle:"兩個月", note:""},
-        {id:uid("oh"), name:"管理費", amount:600, cycle:"月", note:""},
-        {id:uid("oh"), name:"APP", amount:1950, cycle:"月", note:""},
-        {id:uid("oh"), name:"網路", amount:1200, cycle:"月", note:""},
-      ],
-      variable:[
-        {id:uid("oh"), name:"洗衣", amount:600, cycle:"週", note:""},
-        {id:uid("oh"), name:"制服", amount:0, cycle:"月", note:""},
-        {id:uid("oh"), name:"貼布", amount:5580, cycle:"年", note:""},
-        {id:uid("oh"), name:"獎金", amount:0, cycle:"月", note:""},
-        {id:uid("oh"), name:"聚餐", amount:0, cycle:"月", note:""},
-        {id:uid("oh"), name:"衛生紙", amount:0, cycle:"月", note:""},
-        {id:uid("oh"), name:"垃圾袋", amount:0, cycle:"月", note:""},
-        {id:uid("oh"), name:"濾芯", amount:4500, cycle:"年", note:""},
-        {id:uid("oh"), name:"禮金禮盒", amount:0, cycle:"月", note:""},
-      ]
-    }
+    overheadCosts:{ fixed:[], variable:[] }
   };
 }
 
@@ -805,6 +825,7 @@ function normalizeState(parsed){
   if(!parsed || !parsed.items) return defaultState();
   if(!parsed.meta) parsed.meta = {studioName:"悠活手調工作室", tagline:"NORMCORE"};
   if(!parsed.meta.tagline) parsed.meta.tagline = "NORMCORE";
+  parsed.meta.rev = Number(parsed.meta.rev)||0;
   if(!parsed.security) parsed.security = {hash:null, salt:null, hint:"", question:"", qHash:null, qSalt:null};
   if(parsed.security.hint===undefined) parsed.security.hint = "";
   if(parsed.security.question===undefined) parsed.security.question = "";
@@ -853,7 +874,11 @@ function loadState(){
   }
 }
 function saveState(){
-  state.meta.updatedAt = new Date().toISOString();
+  // 套用雲端資料時不更新時間與版本號，保留來源版本，避免誤判成「本機較新」或被時鐘誤差影響
+  if(!applyingRemoteUpdate){
+    state.meta.updatedAt = new Date().toISOString();
+    state.meta.rev = (Number(state.meta.rev)||0) + 1;
+  }
   try{
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }catch(e){
@@ -880,7 +905,33 @@ function withTimeout(promise, ms, message){
     new Promise((_, reject) => setTimeout(()=> reject(new Error(message||"連線逾時，請確認網路或 Firebase 設定")), ms))
   ]);
 }
+// 上傳前清理：移除 undefined（Firebase 不接受）、不把 Firebase 連線設定寫進雲端資料庫
+function cloudPayload(st){
+  const copy = JSON.parse(JSON.stringify(st));
+  copy.cloudSync = {firebaseConfigRaw:"", syncCode:"", lastSyncedAt:null};
+  return copy;
+}
+// 版本比較：優先比版本號（不受各裝置時鐘快慢影響），版本號相同才比時間
+function isRemoteNewer(remote){
+  const rr = Number(remote.meta && remote.meta.rev)||0, lr = Number(state.meta && state.meta.rev)||0;
+  if(rr !== lr) return rr > lr;
+  const rt = remote.meta && remote.meta.updatedAt ? new Date(remote.meta.updatedAt).getTime() : 0;
+  const lt = state.meta && state.meta.updatedAt ? new Date(state.meta.updatedAt).getTime() : 0;
+  return rt > lt;
+}
+function isLocalNewer(remote){
+  return (Number(state.meta && state.meta.rev)||0) > (Number(remote.meta && remote.meta.rev)||0);
+}
+// 這台裝置是不是還沒有任何自己的資料（只有示範資料）——新裝置第一次連線時絕不能拿示範資料覆蓋雲端
+function stateLooksLikeDemo(st){
+  const noCust = !(st.customers||[]).some(c=>!String(c.id).startsWith("cu_demo"));
+  const noTh = !(st.therapists||[]).some(t=>!String(t.id).startsWith("th_demo"));
+  const noTx = !(st.transactions||[]).some(t=>t.note!=="示範紀錄");
+  return noCust && noTh && noTx;
+}
+function localIsPristine(){ return stateLooksLikeDemo(state) && (Number(state.meta.rev)||0) <= 5; }
 async function retrySet(ref, value){
+  value = cloudPayload(value);
   try{
     return await ref.set(value);
   }catch(e){
@@ -944,7 +995,7 @@ async function cloudConnect(configText, syncCode){
     let snap;
     console.log("[雲端同步] 開始讀取雲端資料…");
     try{
-      snap = await withTimeout(firebaseDbRef.once("value"), 15000, "讀取雲端資料逾時（15秒），請確認 databaseURL 是否正確、Realtime Database 是否已建立");
+      snap = await withTimeout(firebaseDbRef.once("value"), 45000, "讀取雲端資料逾時（45秒），請確認 databaseURL 是否正確、Realtime Database 是否已建立，或手機網路是否穩定（資料量較大時需要較久）");
       console.log("[雲端同步] 讀取完成", snap.val());
     }catch(readErr){
       console.error("[雲端同步] 讀取資料失敗", readErr);
@@ -956,7 +1007,10 @@ async function cloudConnect(configText, syncCode){
       state.cloudSync = {
         firebaseConfigRaw: configText, syncCode, lastSyncedAt: new Date().toISOString()
       };
+      const prevApplying = applyingRemoteUpdate;
+      applyingRemoteUpdate = true;   // 只是記錄連線設定，不算資料變更
       saveState();
+      applyingRemoteUpdate = prevApplying;
       attachFirebaseListener();
       toast("已連線並開始同步","success");
       refreshSettingsSection("studio");
@@ -973,17 +1027,22 @@ async function cloudConnect(configText, syncCode){
       }
       finish();
     } else {
-      const remoteTime = remote.meta && remote.meta.updatedAt ? new Date(remote.meta.updatedAt).getTime() : 0;
-      const localTime = state.meta && state.meta.updatedAt ? new Date(state.meta.updatedAt).getTime() : 0;
-      if(remoteTime > localTime){
+      if(localIsPristine()){
+        console.log("[雲端同步] 這台裝置只有示範資料，直接下載雲端資料，不覆蓋雲端");
+        applyingRemoteUpdate = true;
+        state = normalizeState(remote);
+        finish();
+        applyingRemoteUpdate = false;
+        toast("這台裝置還沒有自己的資料，已直接下載雲端資料","success");
+      } else if(isRemoteNewer(remote)){
         confirmModal({
           title:"發現雲端有較新的資料", message:"雲端資料比本機新，建議下載雲端資料到這台裝置。若按「改用本機覆蓋」，將用這台裝置目前的資料覆蓋掉雲端上較新的內容，請先確認這是您要的動作。",
           confirmText:"下載雲端資料", cancelText:"改用本機覆蓋",
           onConfirm(){
             applyingRemoteUpdate = true;
             state = normalizeState(remote);
-            applyingRemoteUpdate = false;
             finish();
+            applyingRemoteUpdate = false;
           },
           onCancel(){
             (async ()=>{
@@ -1025,32 +1084,33 @@ async function cloudConnect(configText, syncCode){
     cloudConnecting = false;
   }
 }
+function handleRemoteSnapshot(remote){
+  if(!remote || !remote.items) return;
+  if(isRemoteNewer(remote)){
+    applyingRemoteUpdate = true;
+    const cs = state.cloudSync;
+    state = normalizeState(remote);
+    state.cloudSync = cs;
+    state.cloudSync.lastSyncedAt = new Date().toISOString();
+    sensitiveUnlocked = false;
+    saveState();
+    applyingRemoteUpdate = false;
+    toast("已同步其他裝置的最新資料","info");
+    if(RENDERERS[activeTab]) switchTab(activeTab);
+  } else if(isLocalNewer(remote) && !localIsPristine()){
+    // 這台裝置有尚未上傳的修改（例如離線期間編輯），補上傳
+    scheduleCloudPush();
+  }
+}
 function attachFirebaseListener(){
   if(!firebaseDbRef || firebaseListenerAttached) return;
   firebaseListenerAttached = true;
-  firebaseDbRef.on("value", (snap)=>{
-    const remote = snap.val();
-    if(!remote || !remote.items) return;
-    const remoteTime = remote.meta && remote.meta.updatedAt ? new Date(remote.meta.updatedAt).getTime() : 0;
-    const localTime = state.meta && state.meta.updatedAt ? new Date(state.meta.updatedAt).getTime() : 0;
-    if(remoteTime > localTime){
-      applyingRemoteUpdate = true;
-      const cs = state.cloudSync;
-      state = normalizeState(remote);
-      state.cloudSync = cs;
-      state.cloudSync.lastSyncedAt = new Date().toISOString();
-      sensitiveUnlocked = false;
-      saveState();
-      applyingRemoteUpdate = false;
-      toast("已同步其他裝置的最新資料","info");
-      if(RENDERERS[activeTab]) switchTab(activeTab);
-    }
-  });
+  firebaseDbRef.on("value", (snap)=> handleRemoteSnapshot(snap.val()));
 }
 async function pushStateToFirebase(){
   if(!firebaseDbRef) return;
   try{
-    await firebaseDbRef.set(state);
+    await retrySet(firebaseDbRef, state);
     state.cloudSync.lastSyncedAt = new Date().toISOString();
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     refreshSettingsSection("studio");
@@ -1065,20 +1125,69 @@ function cloudDisconnect(){
   state.cloudSync = {firebaseConfigRaw:"", syncCode:"", lastSyncedAt:null};
   saveState();
 }
+let cloudReconnecting = false;
 async function tryAutoReconnectCloud(){
   const cs = state.cloudSync;
-  if(!cs || !cs.firebaseConfigRaw || !cs.syncCode) return;
-  if(typeof firebase === "undefined") return;
+  if(!cs || !cs.firebaseConfigRaw || !cs.syncCode || firebaseDbRef || cloudReconnecting) return;
+  if(typeof firebase === "undefined"){
+    cloudLastError = "Firebase 函式庫沒有載入成功（可能是網路擋住 gstatic.com），請檢查網路後重新整理頁面";
+    return;
+  }
+  cloudReconnecting = true;
   try{
-    let config;
-    try{ config = parseFirebaseConfig(cs.firebaseConfigRaw); } catch(e){ return; }
+    const config = parseFirebaseConfig(cs.firebaseConfigRaw);
     firebaseApp = firebase.initializeApp(config, "studioApp_"+Date.now());
-    await firebaseApp.auth().signInAnonymously();
+    await withTimeout(firebaseApp.auth().signInAnonymously(), 20000, "匿名登入逾時（20秒）");
     firebaseDbRef = firebaseApp.database().ref("studios/" + cs.syncCode);
+    firebaseListenerAttached = false;
     attachFirebaseListener();
+    cloudLastError = "";
+    refreshSettingsSection("studio");
   }catch(e){
     console.error("自動重新連線雲端同步失敗", e);
+    if(firebaseApp){ try{ firebaseApp.delete(); }catch(_){} }
+    firebaseApp = null; firebaseDbRef = null; firebaseListenerAttached = false;
+    cloudLastError = "自動重新連線失敗：" + (e && e.message ? e.message : e);
+    toast("雲端同步重新連線失敗，資料暫時只存在這台裝置（可到「系統設定」查看原因）","error");
+    refreshSettingsSection("studio");
+  }finally{
+    cloudReconnecting = false;
   }
+}
+// 手機切回前景、網路恢復時：重新連線並主動比對一次雲端資料（行動瀏覽器背景時會暫停連線）
+async function cloudResume(){
+  const cs = state.cloudSync;
+  if(!cs || !cs.syncCode || !cs.firebaseConfigRaw || cloudConnecting) return;
+  if(!firebaseDbRef){ await tryAutoReconnectCloud(); return; }
+  try{
+    try{ firebaseApp.database().goOnline(); }catch(_){}
+    const snap = await withTimeout(firebaseDbRef.once("value"), 45000, "讀取雲端資料逾時");
+    handleRemoteSnapshot(snap.val());
+  }catch(e){
+    console.warn("[雲端同步] 切回前景後比對失敗", e);
+  }
+}
+document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) cloudResume(); });
+window.addEventListener("online", ()=> cloudResume());
+// 手機一鍵連線連結：#cloud=<base64(JSON{c:設定,s:同步代碼})>
+function buildCloudLink(){
+  const cs = state.cloudSync || {};
+  const b64 = btoa(unescape(encodeURIComponent(JSON.stringify({c:cs.firebaseConfigRaw, s:cs.syncCode}))));
+  return location.href.split("#")[0] + "#cloud=" + encodeURIComponent(b64);
+}
+function handleCloudLinkHash(){
+  const m = (location.hash||"").match(/^#cloud=(.+)$/);
+  if(!m) return false;
+  try{
+    const obj = JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(m[1])))));
+    try{ history.replaceState(null, "", location.pathname + location.search); }catch(_){}
+    if(obj && obj.c && obj.s){
+      toast("偵測到手機連線連結，正在連線雲端同步…","info");
+      cloudConnect(obj.c, obj.s);
+      return true;
+    }
+  }catch(e){ toast("連線連結格式不正確，請回電腦重新產生","error"); }
+  return false;
 }
 
 /* =======================================================
@@ -2780,107 +2889,403 @@ function collectTierInputs(wrapId, tiers){
 }
 
 /* =======================================================
-   11b. 營運成本（固定成本／變動成本）
+   11b. 營運成本（記帳本：依「費用所屬月份」分攤）
    ======================================================= */
+let ohViewMonth = localMonthKey(new Date());
+let ohFilter = "all";      // all | fixed | variable
+let ohShowAll = false;
+const OH_LEDGER_PAGE = 30;
+
+function ohKindLabel(kind){ return kind==="fixed" ? "固定成本" : "變動成本"; }
+function ohAllEntries(){
+  const out = [];
+  ["fixed","variable"].forEach(kind=>{
+    (state.overheadCosts[kind]||[]).forEach(item=>{ out.push({kind, item}); });
+  });
+  return out;
+}
+function ohFindEntry(id){
+  for(const kind of ["fixed","variable"]){
+    const list = state.overheadCosts[kind];
+    const idx = list.findIndex(i=>i.id===id);
+    if(idx>=0) return {kind, list, idx, item:list[idx]};
+  }
+  return null;
+}
+// 最近一次同類型、同名稱的帳目（用來帶入上次金額與下一期起始月）
+function ohLatestEntryByName(kind, name){
+  name = (name||"").trim();
+  if(!name) return null;
+  let best = null, bestEnd = -Infinity;
+  (state.overheadCosts[kind]||[]).forEach(it=>{
+    if(!it.startMonth || (it.name||"").trim()!==name) return;
+    const end = monthKeyToIndex(it.startMonth) + Math.max(1, Number(it.months)||1) - 1;
+    if(end > bestEnd){ best = it; bestEnd = end; }
+  });
+  return best;
+}
+function ohMonthOptionsHTML(selectedKey){
+  return monthSelectHTML("ohStartMonth", selectedKey, 48, 12);
+}
+
 function renderOverhead(container){
   const el = container || document.getElementById("panel-overhead");
-  el.innerHTML = `
-    <div class="note-box mb8">在這裡登記工作室每月／每兩個月／每週／每年固定要付的成本，系統會自動換算成「每月金額」，並計入「月結算薪資」頁面的獲利試算。</div>
-    <div class="card card-pad">
-      <div class="section-head"><h3>固定成本</h3><span class="desc">例如水電、房租、系統訂閱費等</span></div>
-      <div id="overheadFixedWrap"></div>
-      <button class="btn btn-ghost btn-sm mt12" id="addFixedCostBtn">＋ 新增固定成本項目</button>
-      <div class="mt12"><button class="btn btn-accent btn-sm" id="saveFixedCostBtn">儲存固定成本</button></div>
-    </div>
-    <div class="card card-pad mt16">
-      <div class="section-head"><h3>變動成本</h3><span class="desc">例如洗衣、耗材、獎金、聚餐等會浮動的支出</span></div>
-      <div id="overheadVariableWrap"></div>
-      <button class="btn btn-ghost btn-sm mt12" id="addVariableCostBtn">＋ 新增變動成本項目</button>
-      <div class="mt12"><button class="btn btn-accent btn-sm" id="saveVariableCostBtn">儲存變動成本</button></div>
-    </div>
-    <div class="card card-pad mt16">
-      <div class="section-head"><h3>換算後每月成本總覽</h3></div>
-      <div class="grid grid-2" id="overheadSummaryWrap"></div>
-    </div>
-  `;
-  renderOverheadTable("overheadFixedWrap", state.overheadCosts.fixed, "fixed");
-  renderOverheadTable("overheadVariableWrap", state.overheadCosts.variable, "variable");
-  renderOverheadSummary();
+  const monthKey = ohViewMonth;
+  const detail = overheadDetailForMonth(monthKey);
+  const fixedTotal = detail.filter(d=>d.kind==="fixed").reduce((s,d)=>s+d.portion,0);
+  const variableTotal = detail.filter(d=>d.kind==="variable").reduce((s,d)=>s+d.portion,0);
 
-  document.getElementById("addFixedCostBtn").addEventListener("click", ()=>{
-    state.overheadCosts.fixed.push({id:uid("oh"), name:"新項目", amount:0, cycle:"月", note:""});
-    renderOverheadTable("overheadFixedWrap", state.overheadCosts.fixed, "fixed");
-  });
-  document.getElementById("addVariableCostBtn").addEventListener("click", ()=>{
-    state.overheadCosts.variable.push({id:uid("oh"), name:"新項目", amount:0, cycle:"月", note:""});
-    renderOverheadTable("overheadVariableWrap", state.overheadCosts.variable, "variable");
-  });
-  document.getElementById("saveFixedCostBtn").addEventListener("click", ()=>{
-    collectOverheadInputs("overheadFixedWrap", state.overheadCosts.fixed);
-    saveState();
-    toast("已儲存固定成本","success");
-    renderOverheadSummary();
-  });
-  document.getElementById("saveVariableCostBtn").addEventListener("click", ()=>{
-    collectOverheadInputs("overheadVariableWrap", state.overheadCosts.variable);
-    saveState();
-    toast("已儲存變動成本","success");
-    renderOverheadSummary();
-  });
-}
-function renderOverheadTable(wrapId, list, kind){
-  document.getElementById(wrapId).innerHTML = `
-    <div class="table-wrap mt12"><table>
-      <thead><tr><th>項目名稱</th><th class="num">金額</th><th style="width:110px;">週期</th><th class="num">換算每月</th><th>備註</th><th></th></tr></thead>
-      <tbody>
-        ${list.length ? list.map(item=>`
-          <tr data-oh-id="${item.id}">
-            <td><input type="text" data-f="name" value="${escapeHtml(item.name)}"></td>
-            <td class="num"><input type="number" min="0" data-f="amount" value="${item.amount}" style="max-width:110px; margin-left:auto;"></td>
-            <td><select data-f="cycle">${COST_CYCLES.map(c=>`<option ${item.cycle===c?'selected':''}>${c}</option>`).join("")}</select></td>
-            <td class="num mono faint" data-out="monthly">${fmtMoney(monthlyEquivalent(item.amount, item.cycle))}</td>
-            <td><input type="text" data-f="note" value="${escapeHtml(item.note||'')}" placeholder="選填"></td>
-            <td><button class="icon-btn" data-remove-oh="${item.id}" title="刪除">🗑</button></td>
-          </tr>`).join("") : `<tr class="empty-row"><td colspan="6">尚未新增項目</td></tr>`}
-      </tbody>
-    </table></div>
+  const ledgerAll = ohAllEntries().filter(e=>e.item.startMonth)
+    .sort((a,b)=> b.item.startMonth.localeCompare(a.item.startMonth) || (a.item.name||"").localeCompare(b.item.name||""));
+  const ledgerFiltered = ledgerAll.filter(e=> ohFilter==="all" || e.kind===ohFilter);
+  const ledgerShown = ohShowAll ? ledgerFiltered : ledgerFiltered.slice(0, OH_LEDGER_PAGE);
+  const legacy = ohAllEntries().filter(e=>!e.item.startMonth);
+
+  el.innerHTML = `
+    <div class="note-box mb8">
+      <b>像記帳本一樣登錄實際支出。</b>每一筆請填「金額」與「費用所屬的月份區間」，系統會把金額平均分攤到所屬的每個月，月結算時就會用當月實際分攤的成本計算獲利。<br>
+      例如 1～2 月的電費 5,000 元，雖然 3 月才繳費，仍選「所屬起始月＝1 月、涵蓋 2 個月」，1 月與 2 月各分攤 2,500 元，不會錯算到 3 月。
+    </div>
+
+    ${legacy.length ? `
+    <div class="card card-pad mb8" style="border-color:var(--danger);">
+      <div class="section-head"><h3>舊版概算項目仍在計算中</h3><span class="desc">這些是改版前的「每月／每週概算」，每個月都會固定計入成本</span></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>類型</th><th>項目</th><th class="num">金額</th><th>週期</th><th class="num">換算每月</th><th></th></tr></thead>
+        <tbody>${legacy.map(e=>`<tr>
+          <td>${ohKindLabel(e.kind)}</td><td>${escapeHtml(e.item.name)}</td>
+          <td class="num mono">${fmtMoney(e.item.amount)}</td><td>${escapeHtml(e.item.cycle||'月')}</td>
+          <td class="num mono">${fmtMoney(monthlyEquivalent(e.item.amount, e.item.cycle))}</td>
+          <td><button class="icon-btn" data-oh-del="${e.item.id}" title="刪除">🗑</button></td></tr>`).join("")}</tbody>
+      </table></div>
+      <div class="faint mt8">登錄實際帳目後，請把對應的舊版概算刪除，避免同一項成本被重複計算。</div>
+      <button class="btn btn-danger btn-sm mt8" id="ohClearLegacyBtn">移除全部舊版概算項目</button>
+    </div>` : ""}
+
+    <div class="card card-pad">
+      <div class="toolbar">
+        <div class="field"><label>檢視月份</label>${monthSelectHTML("ohViewMonthSel", ohViewMonth, 48, 12)}</div>
+        <button class="btn btn-primary" id="ohAddBtn">＋ 記一筆支出</button>
+        <button class="btn btn-ghost" id="ohNextPeriodBtn" title="把上一期的帳目一次複製成下一期">帶入下一期</button>
+      </div>
+      <div class="grid grid-4">
+        <div class="card stat-card"><div class="label">${monthKeyLabel(monthKey)} 固定成本</div><div class="value">${fmtMoney(fixedTotal)}</div></div>
+        <div class="card stat-card"><div class="label">${monthKeyLabel(monthKey)} 變動成本</div><div class="value">${fmtMoney(variableTotal)}</div></div>
+        <div class="card stat-card"><div class="label">${monthKeyLabel(monthKey)} 營運成本合計</div><div class="value">${fmtMoney(fixedTotal+variableTotal)}</div></div>
+        <div class="card stat-card"><div class="label">帳本筆數</div><div class="value">${fmtNum(ledgerAll.length)}</div><div class="hint">所有月份合計</div></div>
+      </div>
+      <div class="section-head mt16"><h3>${monthKeyLabel(monthKey)} 成本分攤明細</h3><span class="desc">這個月實際分攤到哪些帳單</span></div>
+      ${detail.length ? `<div class="table-wrap"><table>
+        <thead><tr><th>類型</th><th>項目</th><th class="num">帳單金額</th><th>所屬期間</th><th class="num">本月分攤</th></tr></thead>
+        <tbody>
+          ${detail.map(d=>`<tr><td>${ohKindLabel(d.kind)}</td><td>${escapeHtml(d.name)}</td><td class="num mono">${fmtMoney(d.amount)}</td><td>${escapeHtml(d.span)}</td><td class="num mono" style="font-weight:700;">${fmtMoney(d.portion)}</td></tr>`).join("")}
+          <tr><td colspan="4" style="text-align:right; font-weight:700;">合計</td><td class="num mono" style="font-weight:700; color:var(--primary-dark);">${fmtMoney(fixedTotal+variableTotal)}</td></tr>
+        </tbody></table></div>` : `<div class="faint">這個月還沒有任何分攤到的帳目，點上方「＋ 記一筆支出」開始記帳。</div>`}
+    </div>
+
+    <div class="card card-pad mt16">
+      <div class="section-head"><h3>記帳本</h3><span class="desc">依所屬起始月由新到舊；可編輯、刪除，或「複製下期」快速建立下一期</span></div>
+      <div class="small-btn-row mb8">
+        <button class="btn btn-sm ${ohFilter==='all'?'btn-primary':'btn-ghost'}" data-oh-filter="all">全部</button>
+        <button class="btn btn-sm ${ohFilter==='fixed'?'btn-primary':'btn-ghost'}" data-oh-filter="fixed">固定成本</button>
+        <button class="btn btn-sm ${ohFilter==='variable'?'btn-primary':'btn-ghost'}" data-oh-filter="variable">變動成本</button>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>類型</th><th>項目</th><th class="num">金額</th><th>所屬期間</th><th class="num">每月分攤</th><th>付款日</th><th>備註</th><th>操作</th></tr></thead>
+        <tbody>
+          ${ledgerShown.length ? ledgerShown.map(e=>{
+            const it = e.item; const n = Math.max(1, Number(it.months)||1);
+            return `<tr>
+              <td><span class="pill ${e.kind==='fixed'?'pill-service':'pill-mute'}">${ohKindLabel(e.kind)}</span></td>
+              <td>${escapeHtml(it.name)}</td>
+              <td class="num mono">${fmtMoney(it.amount)}</td>
+              <td>${escapeHtml(costSpanLabel(it))}<div class="faint">共 ${n} 個月${ohModeOf(it)==='back'?'・事後帳單往前攤':(ohModeOf(it)==='fwd'?'・預付款往後攤':'')}</div></td>
+              <td class="num mono">${fmtMoney((Number(it.amount)||0)/n)}</td>
+              <td class="faint">${escapeHtml(it.paidDate||'—')}</td>
+              <td class="faint">${escapeHtml(it.note||'')}</td>
+              <td><div class="flex gap8">
+                <button class="icon-btn" data-oh-copy="${it.id}" title="複製成下一期">⧉</button>
+                <button class="icon-btn" data-oh-edit="${it.id}" title="編輯">✎</button>
+                <button class="icon-btn" data-oh-del="${it.id}" title="刪除">🗑</button>
+              </div></td></tr>`;
+          }).join("") : `<tr class="empty-row"><td colspan="8">帳本還是空的，點「＋ 記一筆支出」建立第一筆（例如水費、電費、房租）</td></tr>`}
+        </tbody>
+      </table></div>
+      ${ledgerFiltered.length > OH_LEDGER_PAGE ? `<div class="mt8"><button class="btn btn-ghost btn-sm" id="ohToggleAllBtn">${ohShowAll?'只顯示最近 '+OH_LEDGER_PAGE+' 筆':'顯示全部 '+ledgerFiltered.length+' 筆'}</button></div>` : ""}
+    </div>
   `;
-  document.querySelectorAll(`#${wrapId} tr[data-oh-id]`).forEach(row=>{
-    const recompute = ()=>{
-      const amt = Number(row.querySelector('[data-f="amount"]').value)||0;
-      const cyc = row.querySelector('[data-f="cycle"]').value;
-      row.querySelector('[data-out="monthly"]').textContent = fmtMoney(monthlyEquivalent(amt, cyc));
-    };
-    row.querySelector('[data-f="amount"]').addEventListener("input", recompute);
-    row.querySelector('[data-f="cycle"]').addEventListener("change", recompute);
-  });
-  document.querySelectorAll(`#${wrapId} [data-remove-oh]`).forEach(btn=>{
-    btn.addEventListener("click", ()=>{
-      const id = btn.dataset.removeOh;
-      const idx = list.findIndex(i=>i.id===id);
-      if(idx>=0) list.splice(idx,1);
-      renderOverheadTable(wrapId, list, kind);
+
+  document.getElementById("ohViewMonthSel").addEventListener("change", e=>{ ohViewMonth = e.target.value; renderOverhead(el); });
+  document.getElementById("ohAddBtn").addEventListener("click", ()=> openOverheadModal({mode:"add"}));
+  document.getElementById("ohNextPeriodBtn").addEventListener("click", ()=> openOverheadNextPeriodModal());
+  const toggleBtn = document.getElementById("ohToggleAllBtn");
+  if(toggleBtn) toggleBtn.addEventListener("click", ()=>{ ohShowAll = !ohShowAll; renderOverhead(el); });
+  el.querySelectorAll("[data-oh-filter]").forEach(b=> b.addEventListener("click", ()=>{ ohFilter = b.dataset.ohFilter; ohShowAll = false; renderOverhead(el); }));
+  el.querySelectorAll("[data-oh-edit]").forEach(b=> b.addEventListener("click", ()=>{ const f = ohFindEntry(b.dataset.ohEdit); if(f) openOverheadModal({mode:"edit", kind:f.kind, item:f.item}); }));
+  el.querySelectorAll("[data-oh-copy]").forEach(b=> b.addEventListener("click", ()=>{ const f = ohFindEntry(b.dataset.ohCopy); if(f) openOverheadModal({mode:"copy", kind:f.kind, item:f.item}); }));
+  el.querySelectorAll("[data-oh-del]").forEach(b=> b.addEventListener("click", ()=>{
+    const f = ohFindEntry(b.dataset.ohDel);
+    if(!f) return;
+    confirmModal({
+      title:"刪除這筆帳目", message:`確定要刪除「${f.item.name}」${f.item.startMonth?`（${costSpanLabel(f.item)}，${fmtMoney(f.item.amount)}）`:''}嗎？刪除後，相關月份的成本分攤也會一併移除。`,
+      confirmText:"刪除", danger:true,
+      onConfirm(){ f.list.splice(f.idx,1); saveState(); toast("已刪除帳目","success"); renderOverhead(el); }
+    });
+  }));
+  const clearLegacy = document.getElementById("ohClearLegacyBtn");
+  if(clearLegacy) clearLegacy.addEventListener("click", ()=>{
+    confirmModal({
+      title:"移除舊版概算項目", message:`將移除 ${legacy.length} 個舊版概算項目，之後營運成本只會計入記帳本中已登錄的實際帳目。確定要移除嗎？`,
+      confirmText:"移除", danger:true,
+      onConfirm(){
+        ["fixed","variable"].forEach(k=>{ state.overheadCosts[k] = state.overheadCosts[k].filter(i=>!!i.startMonth); });
+        saveState(); toast("已移除舊版概算項目","success"); renderOverhead(el);
+      }
     });
   });
 }
-function collectOverheadInputs(wrapId, list){
-  document.querySelectorAll(`#${wrapId} tr[data-oh-id]`).forEach(row=>{
-    const id = row.dataset.ohId;
-    const item = list.find(i=>i.id===id);
-    if(!item) return;
-    item.name = row.querySelector('[data-f="name"]').value || "未命名項目";
-    item.amount = Number(row.querySelector('[data-f="amount"]').value)||0;
-    item.cycle = row.querySelector('[data-f="cycle"]').value;
-    item.note = row.querySelector('[data-f="note"]').value || "";
+
+// 認列方式：span＝依帳單所屬期間（自選起始月）；back＝事後帳單，以付款月為最後一個月往前攤（水電）；fwd＝預付款，從付款月起往後攤（年費）
+const OH_MODES = {
+  span:{label:"依帳單所屬期間", help:"自己選費用所屬的第一個月"},
+  back:{label:"事後帳單：以付款月為最後一個月，往前攤", help:"例如 1～2 月電費 3 月付款，填付款日 3 月、涵蓋 2 個月，就攤在 2 月與 3 月"},
+  fwd:{label:"預付款：從付款月起往後攤", help:"例如年費 10 月付款、涵蓋 12 個月，就從 10 月攤到隔年 9 月"},
+};
+function ohModeOf(item){ return (item && OH_MODES[item.mode]) ? item.mode : "span"; }
+function ohComputeStart(mode, paidDate, months, startMonthInput){
+  const n = Math.max(1, Math.round(Number(months)||1));
+  if(mode==="span") return startMonthInput;
+  const pm = String(paidDate||"").slice(0,7);
+  if(isNaN(monthKeyToIndex(pm))) return "";
+  return mode==="back" ? addMonthsKey(pm, -(n-1)) : pm;
+}
+function ohAddMonthsToDate(dateStr, n){
+  const m = String(dateStr||"").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(!m) return "";
+  const idx = monthKeyToIndex(m[1]+"-"+m[2]) + n;
+  const key = indexToMonthKey(idx);
+  const lastDay = new Date(Number(key.slice(0,4)), Number(key.slice(5,7)), 0).getDate();
+  return `${key}-${String(Math.min(Number(m[3]), lastDay)).padStart(2,"0")}`;
+}
+
+function openOverheadModal({mode, kind, item}){
+  const isEdit = mode==="edit", isCopy = mode==="copy";
+  const nowKey = localMonthKey(new Date());
+  const months0 = item ? Math.max(1, Number(item.months)||1) : 1;
+  const recMode = item ? ohModeOf(item) : "span";
+  let startMonth = nowKey, paidDate = "";
+  if(item){
+    if(isCopy){
+      if(recMode==="span") startMonth = addMonthsKey(item.startMonth || nowKey, months0);
+      else { paidDate = ohAddMonthsToDate(item.paidDate, months0); startMonth = ohComputeStart(recMode, paidDate, months0) || nowKey; }
+    } else { startMonth = item.startMonth || nowKey; paidDate = item.paidDate || ""; }
+  }
+  const d = {
+    kind: kind || "fixed", name: item ? item.name : "", amount: item ? item.amount : "",
+    months: months0, recMode, startMonth, paidDate, note: item ? (item.note||"") : "",
+  };
+  openModal({
+    title: isEdit ? "編輯帳目" : (isCopy ? "複製到下一期" : "記一筆支出"),
+    wide:true,
+    bodyHTML: `
+      ${isCopy ? `<div class="info-box mb8">已帶入上一期的內容並把期間往後推一期，請確認金額與付款日期（例如這期水電費不同）後儲存。</div>` : ""}
+      <form id="ohForm" onsubmit="return false;">
+        <div class="form-row">
+          <div class="field"><label>成本類型</label>
+            <select id="ohKind"><option value="fixed" ${d.kind==='fixed'?'selected':''}>固定成本（房租、水電、訂閱…）</option><option value="variable" ${d.kind==='variable'?'selected':''}>變動成本（耗材、洗衣、獎金…）</option></select>
+          </div>
+          <div class="field"><label>項目名稱 *</label><input type="text" id="ohName" value="${escapeHtml(d.name)}" placeholder="點下方常用項目，或自行輸入"></div>
+        </div>
+        <div class="chip-row" id="ohPresetChips" style="margin:-6px 0 14px;"></div>
+        <div class="form-row">
+          <div class="field"><label>帳單金額（元）*</label><input type="number" min="0" step="1" id="ohAmount" value="${d.amount}" placeholder="整張帳單的總金額"></div>
+          <div class="field"><label>涵蓋月數 *</label>
+            <input type="number" min="1" max="60" step="1" id="ohMonths" value="${d.months}">
+            <div class="chip-row" id="ohMonthChips">${[1,2,3,6,12].map(n=>`<button type="button" class="chip" data-m="${n}">${n} 個月</button>`).join("")}</div>
+          </div>
+        </div>
+        <div class="field"><label>認列方式 *<span class="help">　決定這筆帳要攤在哪幾個月</span></label>
+          <select id="ohRecMode">${Object.keys(OH_MODES).map(k=>`<option value="${k}" ${d.recMode===k?'selected':''}>${OH_MODES[k].label}</option>`).join("")}</select>
+          <div class="faint" id="ohRecModeHelp"></div>
+        </div>
+        <div class="form-row">
+          <div class="field" id="ohPaidWrap"><label><span id="ohPaidLabel">實際付款日期</span></label><input type="date" id="ohPaidDate" value="${escapeHtml(d.paidDate)}"></div>
+          <div class="field" id="ohStartWrap"><label>費用所屬的第一個月 *<span class="help">　請選帳單「所屬」的起始月份，不是付款月份</span></label>${ohMonthOptionsHTML(d.startMonth)}</div>
+        </div>
+        <div class="info-box" id="ohPreview"></div>
+        <div class="field mt12"><label>備註（選填）</label><input type="text" id="ohNote" value="${escapeHtml(d.note)}" placeholder="例如：台電 1～2 月帳單"></div>
+      </form>
+    `,
+    footHTML: `<button class="btn btn-ghost" data-close>取消</button><button class="btn btn-primary" id="ohSaveBtn">${isEdit?'儲存變更':'加入帳本'}</button>`,
+    onOpen(){
+      document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click", closeModal));
+      const $ = id => document.getElementById(id);
+      const readMonths = ()=> Math.min(60, Math.max(1, Math.round(Number($("ohMonths").value)||1)));
+      const curStart = ()=> ohComputeStart($("ohRecMode").value, $("ohPaidDate").value, readMonths(), $("ohStartMonth").value);
+      const updatePreview = ()=>{
+        const rm = $("ohRecMode").value;
+        $("ohRecModeHelp").textContent = OH_MODES[rm].help;
+        $("ohStartWrap").style.display = rm==="span" ? "" : "none";
+        $("ohPaidLabel").textContent = rm==="span" ? "實際付款日期（選填）" : "實際付款日期 *";
+        const amt = Number($("ohAmount").value)||0;
+        const n = readMonths();
+        const sm = curStart();
+        if(!sm){ $("ohPreview").innerHTML = "請先填入實際付款日期，系統會依認列方式算出分攤期間。"; }
+        else {
+          const end = addMonthsKey(sm, n-1);
+          $("ohPreview").innerHTML = `分攤期間：<b>${monthKeyLabel(sm)}${n>1?' ～ '+monthKeyLabel(end):''}</b>（共 ${n} 個月）　每月分攤：<b>${fmtMoney(amt/n)}</b>`;
+        }
+        $("ohMonthChips").querySelectorAll(".chip").forEach(c=> c.classList.toggle("active", Number(c.dataset.m)===n));
+      };
+      const renderPresetChips = ()=>{
+        const k = $("ohKind").value;
+        $("ohPresetChips").innerHTML = OVERHEAD_PRESETS[k].map(p=>`<button type="button" class="chip" data-preset="${escapeHtml(p.name)}">${escapeHtml(p.name)}</button>`).join("");
+        $("ohPresetChips").querySelectorAll(".chip").forEach(chip=>{
+          chip.addEventListener("click", ()=>{
+            const preset = OVERHEAD_PRESETS[$("ohKind").value].find(p=>p.name===chip.dataset.preset);
+            $("ohName").value = preset.name;
+            $("ohMonths").value = preset.months;
+            $("ohRecMode").value = preset.mode || "span";
+            const last = ohLatestEntryByName($("ohKind").value, preset.name);
+            if(last){
+              if(!$("ohAmount").value) $("ohAmount").value = last.amount;
+              const lm = Math.max(1, Number(last.months)||1);
+              $("ohMonths").value = lm;
+              const lastMode = ohModeOf(last);
+              $("ohRecMode").value = lastMode;
+              if(lastMode==="span"){
+                const next = addMonthsKey(last.startMonth, lm);
+                const sel = $("ohStartMonth");
+                if(![...sel.options].some(o=>o.value===next)) sel.insertAdjacentHTML("afterbegin", `<option value="${next}">${next.slice(0,4)}年${Number(next.slice(5,7))}月</option>`);
+                sel.value = next;
+              } else if(last.paidDate){
+                $("ohPaidDate").value = ohAddMonthsToDate(last.paidDate, lm);
+              }
+              toast(`已帶入上次「${preset.name}」的金額與下一期設定，請確認後儲存`,"info");
+            }
+            updatePreview();
+          });
+        });
+      };
+      $("ohKind").addEventListener("change", renderPresetChips);
+      ["ohAmount","ohMonths"].forEach(id=> $(id).addEventListener("input", updatePreview));
+      ["ohStartMonth","ohRecMode","ohPaidDate"].forEach(id=> $(id).addEventListener("change", updatePreview));
+      $("ohMonthChips").querySelectorAll(".chip").forEach(c=> c.addEventListener("click", ()=>{ $("ohMonths").value = c.dataset.m; updatePreview(); }));
+      renderPresetChips();
+      updatePreview();
+
+      $("ohSaveBtn").addEventListener("click", ()=>{
+        const name = $("ohName").value.trim();
+        const amount = Number($("ohAmount").value);
+        const months = readMonths();
+        const recMode = $("ohRecMode").value;
+        const paidDate = $("ohPaidDate").value || "";
+        if(!name){ toast("請輸入項目名稱","error"); return; }
+        if(!(amount > 0)){ toast("請輸入大於 0 的帳單金額","error"); return; }
+        if(recMode!=="span" && !paidDate){ toast("這個認列方式需要填實際付款日期","error"); return; }
+        const startMonth = curStart();
+        if(!startMonth || isNaN(monthKeyToIndex(startMonth))){ toast("請選擇費用所屬的起始月份","error"); return; }
+        const newKind = $("ohKind").value;
+        const fields = {name, amount, startMonth, months, mode:recMode, paidDate, note: $("ohNote").value.trim()};
+        if(isEdit){
+          const f = ohFindEntry(item.id);
+          if(f){
+            if(f.kind === newKind){ Object.assign(f.item, fields); }
+            else { f.list.splice(f.idx,1); state.overheadCosts[newKind].push({id:f.item.id, ...fields}); }
+          }
+        } else {
+          state.overheadCosts[newKind].push({id:uid("oh"), ...fields});
+        }
+        ohViewMonth = startMonth;
+        saveState(); closeModal();
+        toast(isEdit ? "已更新帳目" : "已加入帳本","success");
+        refreshSettingsSection("overhead");
+      });
+    }
   });
 }
-function renderOverheadSummary(){
-  const fixedMonthly = totalMonthlyOverhead(state.overheadCosts.fixed);
-  const variableMonthly = totalMonthlyOverhead(state.overheadCosts.variable);
-  document.getElementById("overheadSummaryWrap").innerHTML = `
-    <div class="card stat-card"><div class="label">固定成本（每月換算）</div><div class="value">${fmtMoney(fixedMonthly)}</div></div>
-    <div class="card stat-card"><div class="label">變動成本（每月換算）</div><div class="value">${fmtMoney(variableMonthly)}</div></div>
-  `;
+
+// 「帶入下一期」：找出每個項目最近一期，列出尚未登錄的下一期，勾選並確認金額後一次加入
+function ohNextPeriodCandidates(){
+  const nowIdx = monthKeyToIndex(localMonthKey(new Date()));
+  const latest = {};
+  ["fixed","variable"].forEach(kind=>{
+    (state.overheadCosts[kind]||[]).forEach(it=>{
+      if(!it.startMonth) return;
+      const months = Math.max(1, Number(it.months)||1);
+      const endIdx = monthKeyToIndex(it.startMonth) + months - 1;
+      const key = kind+"|"+(it.name||"").trim();
+      if(!latest[key] || endIdx > latest[key].endIdx) latest[key] = {kind, item:it, months, endIdx};
+    });
+  });
+  const out = [];
+  Object.values(latest).forEach(c=>{
+    const rm = ohModeOf(c.item);
+    let nextPaid = "", nextStart;
+    if(rm==="span"){ nextStart = indexToMonthKey(c.endIdx + 1); }
+    else {
+      nextPaid = ohAddMonthsToDate(c.item.paidDate, c.months);
+      nextStart = ohComputeStart(rm, nextPaid, c.months);
+      if(!nextStart) return;
+    }
+    // 已到期：span／fwd 看起始月是否 <= 本月；back 要看付款月是否 <= 本月。太久沒出現（超過 14 個月）視為已停用
+    const dueIdx = rm==="back" ? monthKeyToIndex(nextPaid.slice(0,7)) : monthKeyToIndex(nextStart);
+    if(dueIdx <= nowIdx && c.endIdx >= nowIdx - 14) out.push({...c, recMode:rm, nextPaid, nextStart});
+  });
+  return out.sort((a,b)=> a.kind.localeCompare(b.kind) || a.item.name.localeCompare(b.item.name));
+}
+function openOverheadNextPeriodModal(){
+  const cands = ohNextPeriodCandidates();
+  if(!cands.length){
+    toast("目前沒有需要帶入的項目（每個項目最近一期都已涵蓋到本月，或太久沒有紀錄）","info");
+    return;
+  }
+  openModal({
+    title:"帶入下一期", wide:true,
+    bodyHTML: `
+      <div class="info-box mb8">以下是各項目「最近一期之後」尚未登錄的下一期，已預設帶入上次的金額。請勾選要加入的項目，並把這期實際金額改正確（例如水電費每期不同）；事後帳單與預付款需確認付款日期。</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th style="width:36px;"></th><th>類型</th><th>項目</th><th>認列方式</th><th>付款日期</th><th>分攤期間</th><th class="num" style="width:140px;">這期帳單金額</th></tr></thead>
+        <tbody>
+          ${cands.map((c,i)=>`<tr data-np="${i}">
+            <td><input type="checkbox" data-np-check checked></td>
+            <td>${ohKindLabel(c.kind)}</td><td>${escapeHtml(c.item.name)}</td>
+            <td class="faint">${c.recMode==='span'?'依所屬期間':(c.recMode==='back'?'往前攤':'往後攤')}</td>
+            <td>${c.recMode==='span' ? '<span class="faint">—</span>' : `<input type="date" data-np-paid value="${escapeHtml(c.nextPaid)}">`}</td>
+            <td data-np-span>${escapeHtml(costSpanLabel({startMonth:c.nextStart, months:c.months}))}<div class="faint">共 ${c.months} 個月</div></td>
+            <td class="num"><input type="number" min="0" step="1" data-np-amount value="${c.item.amount}" style="max-width:120px; margin-left:auto;"></td>
+          </tr>`).join("")}
+        </tbody>
+      </table></div>
+    `,
+    footHTML: `<button class="btn btn-ghost" data-close>取消</button><button class="btn btn-primary" id="ohNpConfirmBtn">加入帳本</button>`,
+    onOpen(){
+      document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click", closeModal));
+      document.querySelectorAll("#modalBody tr[data-np] [data-np-paid]").forEach(inp=> inp.addEventListener("change", ()=>{
+        const row = inp.closest("tr"); const c = cands[Number(row.dataset.np)];
+        const st = ohComputeStart(c.recMode, inp.value, c.months);
+        row.querySelector("[data-np-span]").innerHTML = st ? `${escapeHtml(costSpanLabel({startMonth:st, months:c.months}))}<div class="faint">共 ${c.months} 個月</div>` : "—";
+      }));
+      document.getElementById("ohNpConfirmBtn").addEventListener("click", ()=>{
+        let added = 0, bad = 0;
+        document.querySelectorAll("#modalBody tr[data-np]").forEach(row=>{
+          if(!row.querySelector("[data-np-check]").checked) return;
+          const c = cands[Number(row.dataset.np)];
+          const amount = Number(row.querySelector("[data-np-amount]").value);
+          const paidInp = row.querySelector("[data-np-paid]");
+          const paidDate = paidInp ? paidInp.value : "";
+          const startMonth = c.recMode==="span" ? c.nextStart : ohComputeStart(c.recMode, paidDate, c.months);
+          if(!(amount > 0) || !startMonth){ bad++; return; }
+          state.overheadCosts[c.kind].push({id:uid("oh"), name:c.item.name, amount, startMonth, months:c.months, mode:c.recMode, paidDate, note:c.item.note||""});
+          added++;
+        });
+        if(!added){ toast(bad ? "勾選的項目需有大於 0 的金額與付款日期" : "請至少勾選一個項目","error"); return; }
+        saveState(); closeModal();
+        toast(`已加入 ${added} 筆帳目${bad?`（另有 ${bad} 筆資料不完整未加入）`:''}`,"success");
+        refreshSettingsSection("overhead");
+      });
+    }
+  });
 }
 
 /* =======================================================
@@ -2930,8 +3335,9 @@ function renderSettlementTable(){
     goodsCostDetailMap[t.itemId].sub += sub;
   });
   const goodsCostDetail = Object.values(goodsCostDetailMap).sort((a,b)=>b.sub-a.sub);
-  const fixedCost = totalMonthlyOverhead(state.overheadCosts.fixed);
-  const variableCost = totalMonthlyOverhead(state.overheadCosts.variable);
+  const fixedCost = totalMonthlyOverhead(state.overheadCosts.fixed, monthKey);
+  const variableCost = totalMonthlyOverhead(state.overheadCosts.variable, monthKey);
+  const overheadDetail = overheadDetailForMonth(monthKey);
   const profit = totalRevenue - payroll - goodsCost - fixedCost - variableCost;
 
   document.getElementById("settlementStudioSummary").innerHTML = `
@@ -2939,12 +3345,26 @@ function renderSettlementTable(){
       <div class="card stat-card"><div class="label">當月總收入</div><div class="value">${fmtMoney(totalRevenue)}</div></div>
       <div class="card stat-card"><div class="label">人事支出（薪資合計）</div><div class="value">${fmtMoney(payroll)}</div></div>
       <div class="card stat-card"><div class="label">商品進貨成本</div><div class="value">${fmtMoney(goodsCost)}</div><div class="hint">依「項目與價目」成本設定估算，明細見下方</div></div>
-      <div class="card stat-card"><div class="label">固定＋變動成本</div><div class="value">${fmtMoney(fixedCost+variableCost)}</div><div class="hint">固定 ${fmtMoney(fixedCost)}／變動 ${fmtMoney(variableCost)}，依「營運成本」換算</div></div>
+      <div class="card stat-card"><div class="label">固定＋變動成本</div><div class="value">${fmtMoney(fixedCost+variableCost)}</div><div class="hint">固定 ${fmtMoney(fixedCost)}／變動 ${fmtMoney(variableCost)}，依「營運成本」帳本按所屬月份分攤</div></div>
     </div>
     <div class="grid grid-2 mt16">
       <div class="card stat-card"><div class="label">支出合計</div><div class="value">${fmtMoney(payroll+goodsCost+fixedCost+variableCost)}</div></div>
       <div class="card stat-card"><span class="tag ${profit>=0?'tag-good':''}" style="background:${profit>=0?'':'var(--danger-soft)'}; color:${profit>=0?'':'var(--danger)'};">${profit>=0?'獲利':'虧損'}</span><div class="label">估計獲利</div><div class="value" style="color:${profit>=0?'var(--success)':'var(--danger)'}">${fmtMoney(profit)}</div></div>
     </div>
+    ${overheadDetail.length ? `
+    <div class="card card-pad mt16">
+      <div class="section-head"><h3>營運成本分攤明細（${monthKey.slice(0,4)}年${Number(monthKey.slice(5,7))}月）</h3><span class="desc">= 帳本中各筆帳單金額 ÷ 涵蓋月數；到「營運成本」頁面維護帳目</span></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>類型</th><th>項目</th><th class="num">帳單金額</th><th>所屬期間</th><th class="num">本月分攤</th></tr></thead>
+          <tbody>
+            ${overheadDetail.map(d=>`<tr><td>${d.kind==='fixed'?'固定成本':'變動成本'}</td><td>${escapeHtml(d.name)}</td><td class="num mono">${fmtMoney(d.amount)}</td><td>${escapeHtml(d.span)}</td><td class="num mono" style="font-weight:700;">${fmtMoney(d.portion)}</td></tr>`).join("")}
+            <tr><td colspan="4" style="text-align:right; font-weight:700;">合計</td><td class="num mono" style="font-weight:700; color:var(--primary-dark);">${fmtMoney(fixedCost+variableCost)}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    ` : ''}
     ${goodsCostDetail.length ? `
     <div class="card card-pad mt16">
       <div class="section-head"><h3>商品進貨成本明細（${monthKey.slice(0,4)}年${Number(monthKey.slice(5,7))}月）</h3><span class="desc">= 各商品「進貨成本」設定 × 當月售出數量，加總而成</span></div>
@@ -3387,6 +3807,11 @@ function cloudSyncSectionHTML(){
         <div class="faint mt8" style="margin-top:2px;">${statusSub}</div>
       </div>
     </div>
+    ${(cs.syncCode && cs.firebaseConfigRaw) ? `
+      <div class="info-box mt12">
+        <b>手機要同步？</b>按下方按鈕產生「手機一鍵連線連結」，用 LINE 或 AirDrop 傳給自己，在手機開啟即可自動帶入設定並下載雲端資料，不用在手機貼 Firebase 設定。
+        <div class="mt8"><button class="btn btn-ghost btn-sm" id="cloudLinkBtn">產生手機一鍵連線連結</button></div>
+      </div>` : ""}
     ${cloudLastError ? `
       <div class="note-box mt12" style="background:var(--danger-soft); border-color:#E3B7B0; color:var(--danger); display:flex; justify-content:space-between; gap:10px; align-items:flex-start;">
         <div><b>上次連線錯誤：</b>${escapeHtml(cloudLastError)}</div>
@@ -3446,6 +3871,27 @@ function cloudSyncSectionHTML(){
   `;
 }
 function wireCloudSyncSection(){
+  const linkBtn = document.getElementById("cloudLinkBtn");
+  if(linkBtn) linkBtn.addEventListener("click", ()=>{
+    const link = buildCloudLink();
+    const isFile = location.protocol === "file:";
+    openModal({
+      title:"手機一鍵連線連結",
+      bodyHTML:`
+        ${isFile ? `<div class="note-box mb8">目前是用電腦上的檔案（file://）開啟，手機無法打開這種連結。請先把網頁放到網路上（例如 GitHub Pages），用網址開啟後再產生連結。</div>` : ""}
+        <p style="line-height:1.7;">把下面的連結傳到手機並開啟。連結內含您的同步代碼與 Firebase 設定，<b>請只傳給自己，不要公開分享</b>。手機第一次開啟會直接下載雲端資料，不會用手機上的示範資料覆蓋雲端。</p>
+        <div class="field"><textarea id="cloudLinkText" rows="5" readonly style="font-family:monospace; font-size:11.5px;">${escapeHtml(link)}</textarea></div>`,
+      footHTML:`<button class="btn btn-ghost" data-close>關閉</button><button class="btn btn-primary" id="cloudLinkCopyBtn">複製連結</button>`,
+      onOpen(){
+        document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click", closeModal));
+        document.getElementById("cloudLinkCopyBtn").addEventListener("click", async ()=>{
+          const ta = document.getElementById("cloudLinkText");
+          try{ await navigator.clipboard.writeText(link); toast("已複製連結","success"); }
+          catch(e){ ta.focus(); ta.select(); toast("請長按選取後手動複製","info"); }
+        });
+      }
+    });
+  });
   const dismissBtn = document.getElementById("cloudErrorDismissBtn");
   if(dismissBtn) dismissBtn.addEventListener("click", ()=>{ cloudLastError=""; refreshSettingsSection("studio"); });
   const connectBtn = document.getElementById("cloudConnectBtn");
@@ -3465,7 +3911,7 @@ function wireCloudSyncSection(){
     }, 1000);
     toast("開始連線，請稍候（網路較慢時可能需要 30 秒以上，請耐心等候，畫面不會消失）","info");
     try{
-      await withTimeout(cloudConnect(configText, syncCode), 70000, "整體連線流程逾時（70秒），請重新整理頁面後再試一次，並將 Console 訊息截圖回報");
+      await withTimeout(cloudConnect(configText, syncCode), 150000, "整體連線流程逾時（150秒），請重新整理頁面後再試一次，並將 Console 訊息截圖回報");
     } catch(e){
       cloudLastError = e.message;
       toast("連線失敗："+e.message, "error");
@@ -3610,7 +4056,7 @@ function init(){
   renderNav();
   document.getElementById("brandName").textContent = state.meta.studioName || "工作室記帳系統";
   switchTab("dashboard");
-  tryAutoReconnectCloud();
+  if(!handleCloudLinkHash()) tryAutoReconnectCloud();
 }
 init();
 
