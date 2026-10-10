@@ -847,7 +847,8 @@ function defaultState(){
         {id:uid("pt"), min:5, max:9, rate:500, bonus:0, label:"5～9 顆（每顆分潤）"},
         {id:uid("pt"), min:10, max:999999, rate:500, bonus:500, label:"10 顆以上（每顆分潤＋額外獎勵）"},
       ],
-      otherRates
+      otherRates,
+      deputyBonus:{threshold:200, lowPct:3, highPct:5}
     },
     costs,
     transactions,
@@ -907,6 +908,13 @@ function normalizeState(parsed){
   if(!Array.isArray(parsed.commission.treatmentTiers)) parsed.commission.treatmentTiers = [];
   if(!Array.isArray(parsed.commission.pillowTiers)) parsed.commission.pillowTiers = [];
   if(!parsed.commission.otherRates) parsed.commission.otherRates = {};
+  { const d = parsed.commission.deputyBonus || {};
+    parsed.commission.deputyBonus = {
+      threshold: d.threshold===undefined ? 200 : (Number(d.threshold)||0),
+      lowPct: d.lowPct===undefined ? 3 : (Number(d.lowPct)||0),
+      highPct: d.highPct===undefined ? 5 : (Number(d.highPct)||0)
+    };
+  }
   parsed.commission.treatmentTiers.forEach(t=>{ if(t.perPerson===undefined) t.perPerson = false; });
   // 一次性調整：「91 次以上每多 1 人」遞增獎金由 1000 元下調為 100 元
   if(!parsed.meta.bonusTier100Done){
@@ -1730,17 +1738,31 @@ function studioProfitBeforeDeputyBonus(monthKey){
   const overhead = totalMonthlyOverhead(state.overheadCosts.fixed, monthKey) + totalMonthlyOverhead(state.overheadCosts.variable, monthKey);
   return revenue - payroll - monthGoodsCost(monthKey) - overhead;
 }
+// 副店長獎金級距用的「調理人數」：當月全店調理總數，不含店長經手的人數
+function studioTreatmentCountExManager(monthKey){
+  return monthTransactions(monthKey).filter(t=>t.itemId==="it_tiao").reduce((sum,t)=>{
+    const th = t.therapistId ? byId(state.therapists, t.therapistId) : null;
+    if(th && roleForMonth(th, monthKey).role === "manager") return sum;
+    return sum + (Number(t.qty)||0);
+  }, 0);
+}
+function deputyPctForMonth(monthKey){
+  const r = state.commission.deputyBonus || {threshold:200, lowPct:3, highPct:5};
+  const cnt = studioTreatmentCountExManager(monthKey);
+  return {count:cnt, pct: cnt <= r.threshold ? r.lowPct : r.highPct, threshold:r.threshold};
+}
 function computeTherapistSettlement(therapistId, monthKey){
   const core = settlementCore(therapistId, monthKey);
   const th = byId(state.therapists, therapistId);
-  let deputyBonus = 0, deputyBase = 0;
-  const rInfo = th ? roleForMonth(th, monthKey) : {role:"staff", profitPct:0};
-  const pct = rInfo.role==="deputy" ? (Number(rInfo.profitPct)||0) : 0;
+  let deputyBonus = 0, deputyBase = 0, deputyCount = 0;
+  const rInfo = th ? roleForMonth(th, monthKey) : {role:"staff"};
+  let pct = 0;
+  if(rInfo.role==="deputy"){ const d = deputyPctForMonth(monthKey); pct = d.pct; deputyCount = d.count; }
   if(pct > 0){
     deputyBase = studioProfitBeforeDeputyBonus(monthKey);
     deputyBonus = Math.round(Math.max(0, deputyBase) * pct / 100);
   }
-  return {...core, deputyBonus, deputyBase, deputyPct: pct, total: core.total + deputyBonus};
+  return {...core, deputyBonus, deputyBase, deputyPct: pct, deputyCount, total: core.total + deputyBonus};
 }
 function calcAge(birthDate, birthYear){
   const today = new Date();
@@ -2572,7 +2594,7 @@ function renderTherapists(container){
             const histCount = (t.levelHistory||[]).length;
             return `<tr>
               <td>${escapeHtml(t.name)}</td>
-              <td>${t.role==='manager'?'<span class="pill pill-good">店長</span><div class="faint">實做實收</div>':t.role==='deputy'?`<span class="pill pill-good">副店長</span><div class="faint">獲利 ${Number(t.profitPct)||0}%</div>`:'<span class="faint">調理師</span>'}</td>
+              <td>${t.role==='manager'?'<span class="pill pill-good">店長</span><div class="faint">實做實收</div>':t.role==='deputy'?'<span class="pill pill-good">副店長</span><div class="faint">獲利獎金</div>':'<span class="faint">調理師</span>'}</td>
               <td><span class="pill pill-${t.level}">${t.level} 級</span>${histCount>1?`<div class="faint" style="margin-top:2px;">共 ${histCount} 筆等級歷程</div>`:''}</td>
               <td>${escapeHtml(t.phone||'—')}</td>
               <td><span class="pill ${t.status==='active'?'pill-good':'pill-mute'}">${t.status==='active'?'在職':'停用'}</span></td>
@@ -2604,14 +2626,13 @@ function therapistFormBody(t){
         <div class="field"><label>電話</label><input type="tel" name="phone" value="${escapeHtml(t?t.phone:'')}"></div>
         <div class="field"><label>到職日</label><input type="date" name="joinDate" value="${t?t.joinDate:todayStr()}"></div>
       </div>
-      ${(t && t.levelHistory && t.levelHistory.length) ? `<div class="info-box mb8">目前職務：<b>${ROLE_LABELS[t.role]||'一般調理師'}${t.role==='deputy'?`（獲利 ${Number(t.profitPct)||0}%）`:''}</b>。職務與等級一樣，請在下方「等級／職務變更歷程」新增晉升紀錄（含生效日期），系統會依月份套用當時的職務。</div>` : ""}
+      ${(t && t.levelHistory && t.levelHistory.length) ? `<div class="info-box mb8">目前職務：<b>${ROLE_LABELS[t.role]||'一般調理師'}</b>。職務與等級一樣，請在下方「等級／職務變更歷程」新增晉升紀錄（含生效日期），系統會依月份套用當時的職務。</div>` : ""}
       <div class="form-row" style="${(t && t.levelHistory && t.levelHistory.length) ? 'display:none;' : ''}">
         <div class="field"><label>職務</label><select name="role" id="thRole">
           <option value="staff" ${!t||!t.role||t.role==='staff'?'selected':''}>一般調理師（依分潤規則）</option>
           <option value="manager" ${t&&t.role==='manager'?'selected':''}>店長（不受分潤規則限制，調理實做實收）</option>
-          <option value="deputy" ${t&&t.role==='deputy'?'selected':''}>副店長（依分潤規則 ＋ 公司獲利％獎金）</option>
+          <option value="deputy" ${t&&t.role==='deputy'?'selected':''}>副店長（依分潤規則 ＋ 公司獲利獎金，％數依「分潤規則」人數級距）</option>
         </select></div>
-        <div class="field" id="thPctWrap" style="${t&&t.role==='deputy'?'':'display:none;'}"><label>公司獲利獎金％</label><input type="number" name="profitPct" min="0" max="100" step="0.5" value="${t&&t.profitPct?t.profitPct:0}" placeholder="例如 5"></div>
       </div>
       
       <div class="field"><label>狀態</label><select name="status"><option value="active" ${!t||t.status==='active'?'selected':''}>在職</option><option value="inactive" ${t&&t.status==='inactive'?'selected':''}>停用</option></select></div>
@@ -2622,7 +2643,6 @@ function therapistFormBody(t){
         <div class="field"><label>生效日期</label><input type="date" id="thHistAddDate" value="${todayStr()}"></div>
         <div class="field"><label>等級</label><select id="thHistAddLevel">${LEVELS.map(l=>`<option>${l}</option>`).join("")}</select></div>
         <div class="field"><label>職務</label><select id="thHistAddRole">${Object.keys(ROLE_LABELS).map(k=>`<option value="${k}" ${(t?t.role:'staff')===k?'selected':''}>${ROLE_LABELS[k]}</option>`).join("")}</select></div>
-        <div class="field" id="thHistPctWrap" style="${t&&t.role==='deputy'?'':'display:none;'}"><label>獲利獎金％</label><input type="number" id="thHistAddPct" min="0" max="100" step="0.5" value="${t&&t.role==='deputy'?(Number(t.profitPct)||0):0}" style="max-width:90px;"></div>
         <div class="field grow"><label>備註(選填)</label><input type="text" id="thHistAddNote" placeholder="例如：晉升副店長"></div>
         <button class="btn btn-ghost" type="button" id="thHistAddBtn">新增這筆</button>
       </div>
@@ -2640,7 +2660,7 @@ function renderThHistoryTable(wrapEl, history){
           ${sorted.map(h=>`<tr>
             <td>${escapeHtml(h.date)}</td>
             <td><span class="pill pill-${h.level}">${h.level} 級</span></td>
-            <td>${h.role==='manager'?'店長（實做實收）':h.role==='deputy'?`副店長（獲利 ${Number(h.profitPct)||0}%）`:(h.role==='staff'?'一般調理師':'<span class="faint">沿用前一筆</span>')}</td>
+            <td>${h.role==='manager'?'店長（實做實收）':h.role==='deputy'?'副店長（獲利獎金）':(h.role==='staff'?'一般調理師':'<span class="faint">沿用前一筆</span>')}</td>
             <td class="faint">${escapeHtml(h.note||'')}</td>
             <td><button type="button" class="icon-btn" data-del-hist="${h.id}" title="刪除此筆歷程">🗑</button></td>
           </tr>`).join("")}
@@ -2672,7 +2692,7 @@ function openTherapistModal(t){
         const level = document.getElementById("thHistAddLevel").value;
         const note = document.getElementById("thHistAddNote").value.trim();
         const role = document.getElementById("thHistAddRole").value;
-        const profitPct = role==="deputy" ? (Number(document.getElementById("thHistAddPct").value)||0) : 0;
+        const profitPct = 0;
         if(!date){ toast("請選擇生效日期","error"); return; }
         workingHistory.push({id:uid("lh"), date, level, note, role, profitPct});
         renderThHistoryTable(histWrap, workingHistory);
@@ -2680,9 +2700,7 @@ function openTherapistModal(t){
         toast("已加入歷程，請記得按下方「儲存變更」才會真正保存","info");
       });
       const roleSel = document.getElementById("thRole");
-      roleSel.addEventListener("change", ()=>{ document.getElementById("thPctWrap").style.display = roleSel.value==="deputy" ? "" : "none"; });
-      const histRoleSel = document.getElementById("thHistAddRole");
-      histRoleSel.addEventListener("change", ()=>{ document.getElementById("thHistPctWrap").style.display = histRoleSel.value==="deputy" ? "" : "none"; });
+
       document.getElementById("thClearBtn").addEventListener("click", ()=>{
         clearFormFields("thForm");
         toast("已清空欄位","info");
@@ -2695,7 +2713,7 @@ function openTherapistModal(t){
         let history = workingHistory.slice();
         if(!history.length){
           history.push({id:uid("lh"), date: fd.get("joinDate")||todayStr(), level, note:"初始等級",
-            role: fd.get("role")||"staff", profitPct: fd.get("role")==="deputy" ? (Number(fd.get("profitPct"))||0) : 0});
+            role: fd.get("role")||"staff", profitPct: 0});
         } else {
           const latest = history.slice().sort((a,b)=>a.date.localeCompare(b.date)).pop();
           level = latest.level;
@@ -2925,7 +2943,28 @@ function renderCommission(container){
       <div id="otherRateWrap"></div>
       <div class="mt12"><button class="btn btn-accent btn-sm" id="saveOtherRates">儲存其他項目分潤</button></div>
     </div>
+
+    <div class="card card-pad mt16">
+      <div class="section-head">
+        <div><h3>副店長獲利獎金</h3><div class="desc">在「調理師管理」把職務設為「副店長」的人適用。獎金 =（當月收入 − 薪資 − 商品成本 − 營運成本）× 下方％；依當月全店調理人數（<b>不含店長</b>）決定使用哪一個％。</div></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>人數門檻（人）</label><input type="number" id="dbThreshold" min="0" step="1" value="${state.commission.deputyBonus.threshold}"></div>
+        <div class="field"><label>人數 ≤ 門檻時的獲利％</label><input type="number" id="dbLow" min="0" max="100" step="0.5" value="${state.commission.deputyBonus.lowPct}"></div>
+        <div class="field"><label>人數 &gt; 門檻時的獲利％</label><input type="number" id="dbHigh" min="0" max="100" step="0.5" value="${state.commission.deputyBonus.highPct}"></div>
+      </div>
+      <div class="faint">例如：門檻 200、3%、5% → 當月調理 200 人以下拿獲利 3%，201 人以上整筆拿 5%。</div>
+      <div class="mt12"><button class="btn btn-accent btn-sm" id="saveDeputyBonus">儲存副店長獎金設定</button></div>
+    </div>
   `;
+  document.getElementById("saveDeputyBonus").addEventListener("click", ()=>{
+    state.commission.deputyBonus = {
+      threshold: Number(document.getElementById("dbThreshold").value)||0,
+      lowPct: Number(document.getElementById("dbLow").value)||0,
+      highPct: Number(document.getElementById("dbHigh").value)||0
+    };
+    saveState(); toast("已儲存副店長獎金設定","success");
+  });
   renderTierTable("treatmentTierWrap", state.commission.treatmentTiers, "次", true);
   renderTierTable("pillowTierWrap", state.commission.pillowTiers, "顆", false);
   document.getElementById("addTreatmentTier").addEventListener("click", ()=>{
@@ -3543,7 +3582,7 @@ function renderSettlementTable(){
               <td class="num col-divide"><input type="number" min="0" data-settle="pillow" value="${s.pillowPay}" style="max-width:90px; margin-left:auto;"></td>
               <td class="num mono" title="${s.otherDetail.map(d=>d.itemName+'×'+d.qty+'='+Math.round(d.amount)).join(', ')||'—'}">${fmtMoney(s.otherTotal)}</td>
               <td class="num col-divide"><input type="number" min="0" data-settle="teamBonus" value="${s.teamBonus}" style="max-width:90px; margin-left:auto;"></td>
-              <td class="num mono" data-deputy-bonus="${s.deputyBonus}" title="${s.deputyPct?('獲利基礎 '+fmtMoney(s.deputyBase)+' × '+s.deputyPct+'%'):''}">${s.deputyPct?fmtMoney(s.deputyBonus):'—'}</td>
+              <td class="num mono" data-deputy-bonus="${s.deputyBonus}" title="${s.deputyPct?('調理人數（不含店長）'+s.deputyCount+' 人 → '+s.deputyPct+'%；獲利基礎 '+fmtMoney(s.deputyBase)):''}">${s.deputyPct?fmtMoney(s.deputyBonus):'—'}</td>
               <td class="num mono" style="font-weight:700; color:var(--primary-dark);" data-out="total">${fmtMoney(s.total)}</td>
               <td><button class="btn btn-ghost btn-sm" data-reset-settle="${th.id}">還原建議值</button></td>
             </tr>`;
@@ -3551,7 +3590,7 @@ function renderSettlementTable(){
         </tbody>
       </table>
     </div>
-    <div class="faint mt12">提示：「店長」調理金額 100% 實收（不受分潤規則限制）；「副店長獲利獎金」＝（當月收入 − 薪資（不含此獎金）− 商品成本 − 營運成本）× 設定％，虧損時為 0，儲存後會連同其他人的調整一併重算。滑鼠移到「其他項目分潤」欄位可看到明細；調整「分潤比例」「枕頭分潤」「團隊獎金」後，需按上方「儲存本月所有調整」才會保留。</div>
+    <div class="faint mt12">提示：「店長」調理金額 100% 實收（不受分潤規則限制）；「副店長獲利獎金」＝（當月收入 − 薪資（不含此獎金）− 商品成本 − 營運成本）× 級距％（調理人數不含店長，≤門檻用低％、超過用高％，可到「分潤規則」調整），虧損時為 0，儲存後會連同其他人的調整一併重算。滑鼠移到「其他項目分潤」欄位可看到明細；調整「分潤比例」「枕頭分潤」「團隊獎金」後，需按上方「儲存本月所有調整」才會保留。</div>
   `;
 
   document.querySelectorAll('[data-settle-row]').forEach(row=>{
@@ -3680,7 +3719,7 @@ function renderMyPayDashboard(el, th){
             <tr><td>枕頭銷售分潤</td><td class="num mono">${fmtMoney(s.pillowPay)}</td></tr>
             <tr><td>其他項目分潤${s.otherDetail.length?`（${s.otherDetail.map(d=>d.itemName+'×'+d.qty).join('、')}）`:''}</td><td class="num mono">${fmtMoney(s.otherTotal)}</td></tr>
             <tr><td>團隊獎金</td><td class="num mono">${fmtMoney(s.teamBonus)}</td></tr>
-            ${s.deputyPct?`<tr><td>副店長獲利獎金（工作室當月獲利 × ${s.deputyPct}%）</td><td class="num mono">${fmtMoney(s.deputyBonus)}</td></tr>`:''}
+            ${s.deputyPct?`<tr><td>副店長獲利獎金（工作室當月獲利 × ${s.deputyPct}%，當月調理人數 ${s.deputyCount} 人）</td><td class="num mono">${fmtMoney(s.deputyBonus)}</td></tr>`:''}
             <tr><td style="font-weight:700;">總薪資</td><td class="num mono" style="font-weight:700;">${fmtMoney(s.total)}</td></tr>
           </tbody>
         </table>
