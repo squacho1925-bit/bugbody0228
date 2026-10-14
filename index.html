@@ -296,31 +296,14 @@ input[type=file]{border:1px solid var(--border); border-radius:8px; padding:8px 
 
 /* ---------- 右上角日期時間 ---------- */
 .topbar-right{display:flex; align-items:center; gap:14px; min-width:0;}
-.top-clock{position:relative; overflow:hidden; display:flex; align-items:center; gap:12px; flex:0 0 auto; white-space:nowrap;
-  padding:8px 16px 11px; border-radius:12px; color:#F4EFE3;
-  background:linear-gradient(135deg,var(--primary-dark) 0%,#2F4A3E 100%);
-  box-shadow:0 4px 14px rgba(35,58,49,.22), inset 0 1px 0 rgba(255,255,255,.08);}
-.tc-date{display:flex; flex-direction:column; align-items:flex-start; line-height:1.15;}
-.tc-md{font-family:var(--font-display); font-size:15px; font-weight:600; letter-spacing:.04em;}
-.tc-wd{font-size:11px; letter-spacing:.2em; color:#C9B48A; margin-top:2px;}
-.tc-sep{width:1px; align-self:stretch; background:linear-gradient(transparent,rgba(224,196,140,.55),transparent);}
-.tc-time{display:flex; align-items:baseline; font-family:var(--font-display); font-variant-numeric:tabular-nums; font-feature-settings:"tnum";}
-#tcHM{font-size:26px; font-weight:600; letter-spacing:.02em;}
-.tc-colon{font-size:22px; margin:0 2px; color:#E0C48C; animation:tcBlink 1s steps(1) infinite;}
-.tc-sec{display:inline-block; min-width:1.45em; font-size:17px; font-weight:600; color:#E7C27D;}
-.tc-sec.tick{animation:tcTick .45s ease-out;}
-.tc-bar{position:absolute; left:0; right:0; bottom:0; height:3px; background:rgba(255,255,255,.1);}
-.tc-bar b{display:block; height:100%; width:0; background:linear-gradient(90deg,#BD8A3F,#E7C27D); transition:width .95s linear;}
-@keyframes tcBlink{0%{opacity:1;} 50%{opacity:.25;}}
-@keyframes tcTick{0%{transform:translateY(-6px); opacity:0;} 100%{transform:none; opacity:1;}}
-@media (prefers-reduced-motion: reduce){ .tc-colon,.tc-sec.tick{animation:none;} .tc-bar b{transition:none;} }
+.top-clock{display:flex; flex-direction:column; align-items:flex-end; line-height:1.2; padding:6px 12px; border:1px solid var(--border); border-radius:10px; background:#fff; white-space:nowrap; flex:0 0 auto;}
+.top-clock .tc-date{font-size:12px; color:var(--ink-soft);}
+.top-clock .tc-time{font-size:18px; font-weight:700; color:var(--primary-dark); font-variant-numeric:tabular-nums; font-family:ui-monospace,Menlo,monospace;}
 @media (max-width:900px){
   .topbar-right{display:contents;}
-  .top-clock{position:absolute; top:10px; right:12px; gap:8px; padding:5px 10px 8px; border-radius:10px;}
-  .tc-date{display:none;}
-  .tc-sep{display:none;}
-  #tcHM{font-size:19px;} .tc-colon{font-size:16px;} .tc-sec{font-size:13px;}
-  #topbar .flex.items-center{padding-right:120px;}
+  .top-clock{position:absolute; top:12px; right:16px; padding:4px 10px;}
+  .top-clock .tc-time{font-size:15px;}
+  #topbar .flex.items-center{padding-right:110px;}
 }
 
 /* ---------- 手機版優化 ---------- */
@@ -402,12 +385,7 @@ input[type=file]{border:1px solid var(--border); border-radius:8px; padding:8px 
       </div>
       <div class="topbar-right">
         <div class="flex gap8" id="topbarActions"></div>
-        <div id="topClock" class="top-clock" aria-hidden="true" title="今日日期與現在時間">
-          <div class="tc-date"><span class="tc-md" id="tcMD"></span><span class="tc-wd" id="tcWD"></span></div>
-          <span class="tc-sep"></span>
-          <div class="tc-time"><span id="tcHM"></span><span class="tc-colon">:</span><span class="tc-sec" id="tcS"></span></div>
-          <i class="tc-bar"><b id="tcBar"></b></i>
-        </div>
+        <div id="topClock" class="top-clock" aria-live="off" title="今日日期與現在時間"><span class="tc-date" id="tcDate"></span><span class="tc-time" id="tcTime"></span></div>
       </div>
     </div>
     <div id="content"></div>
@@ -1653,31 +1631,15 @@ function renderForgotArea(area, onUnlocked){
 }
 (function startClock(){
   const WEEK = ["日","一","二","三","四","五","六"];
-  const $ = id => document.getElementById(id);
-  let lastDay = "";
   function tick(){
     const d = new Date();
-    if(!$("tcS")) return;
-    const day = d.getFullYear()+"-"+d.getMonth()+"-"+d.getDate();
-    if(day !== lastDay){
-      lastDay = day;
-      $("tcMD").textContent = `${d.getMonth()+1}月${d.getDate()}日`;
-      $("tcWD").textContent = `週${WEEK[d.getDay()]}`;
-    }
-    $("tcHM").textContent = String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");
-    const sec = d.getSeconds();
-    const sEl = $("tcS");
-    sEl.textContent = String(sec).padStart(2,"0");
-    sEl.classList.remove("tick"); void sEl.offsetWidth; sEl.classList.add("tick");
-    const bar = $("tcBar");
-    if(sec === 0){ bar.style.transition = "none"; bar.style.width = "0%"; void bar.offsetWidth; bar.style.transition = ""; }
-    bar.style.width = ((sec+1)/60*100) + "%";
+    const dateEl = document.getElementById("tcDate"), timeEl = document.getElementById("tcTime");
+    if(!dateEl || !timeEl) return;
+    dateEl.textContent = `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,"0")}/${String(d.getDate()).padStart(2,"0")}（週${WEEK[d.getDay()]}）`;
+    timeEl.textContent = `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
   }
-  function loop(){
-    tick();
-    setTimeout(loop, 1000 - (Date.now() % 1000) + 5);   // 對齊整秒，避免秒數跳動不均
-  }
-  loop();
+  tick();
+  setInterval(tick, 10000);
   document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) tick(); });
 })();
 document.getElementById("menuToggle").addEventListener("click", ()=> document.getElementById("sidebar").classList.toggle("open"));
