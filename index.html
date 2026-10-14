@@ -293,19 +293,6 @@ input[type=file]{border:1px solid var(--border); border-radius:8px; padding:8px 
 .date-nav{display:flex; align-items:center; gap:6px; flex-wrap:wrap;}
 .date-nav input[type=date]{min-width:0; width:150px;}
 
-
-/* ---------- 右上角日期時間 ---------- */
-.topbar-right{display:flex; align-items:center; gap:14px; min-width:0;}
-.top-clock{display:flex; flex-direction:column; align-items:flex-end; line-height:1.2; padding:6px 12px; border:1px solid var(--border); border-radius:10px; background:#fff; white-space:nowrap; flex:0 0 auto;}
-.top-clock .tc-date{font-size:12px; color:var(--ink-soft);}
-.top-clock .tc-time{font-size:18px; font-weight:700; color:var(--primary-dark); font-variant-numeric:tabular-nums; font-family:ui-monospace,Menlo,monospace;}
-@media (max-width:900px){
-  .topbar-right{display:contents;}
-  .top-clock{position:absolute; top:12px; right:16px; padding:4px 10px;}
-  .top-clock .tc-time{font-size:15px;}
-  #topbar .flex.items-center{padding-right:110px;}
-}
-
 /* ---------- 手機版優化 ---------- */
 @media (max-width:900px){
   #topbar{flex-wrap:wrap; gap:10px; align-items:flex-start; position:sticky; top:0; z-index:40;}
@@ -383,10 +370,7 @@ input[type=file]{border:1px solid var(--border); border-radius:8px; padding:8px 
           <div class="sub" id="pageSub">今天也要記得記帳喔</div>
         </div>
       </div>
-      <div class="topbar-right">
-        <div class="flex gap8" id="topbarActions"></div>
-        <div id="topClock" class="top-clock" aria-live="off" title="今日日期與現在時間"><span class="tc-date" id="tcDate"></span><span class="tc-time" id="tcTime"></span></div>
-      </div>
+      <div class="flex gap8" id="topbarActions"></div>
     </div>
     <div id="content"></div>
   </div>
@@ -1629,19 +1613,6 @@ function renderForgotArea(area, onUnlocked){
     });
   }
 }
-(function startClock(){
-  const WEEK = ["日","一","二","三","四","五","六"];
-  function tick(){
-    const d = new Date();
-    const dateEl = document.getElementById("tcDate"), timeEl = document.getElementById("tcTime");
-    if(!dateEl || !timeEl) return;
-    dateEl.textContent = `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,"0")}/${String(d.getDate()).padStart(2,"0")}（週${WEEK[d.getDay()]}）`;
-    timeEl.textContent = `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
-  }
-  tick();
-  setInterval(tick, 10000);
-  document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) tick(); });
-})();
 document.getElementById("menuToggle").addEventListener("click", ()=> document.getElementById("sidebar").classList.toggle("open"));
 
 /* =======================================================
