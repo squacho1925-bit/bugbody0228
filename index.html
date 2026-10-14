@@ -271,6 +271,58 @@ input[type=file]{border:1px solid var(--border); border-radius:8px; padding:8px 
   #menuToggle{display:inline-flex !important;}
 }
 
+/* ---------- 儀表板：壽星跑馬燈、調理人次 ---------- */
+.marquee{overflow:hidden; position:relative; border-radius:10px; background:var(--surface-alt,#F6F3EC); padding:10px 0;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 4%,#000 96%,transparent); mask-image:linear-gradient(90deg,transparent,#000 4%,#000 96%,transparent);}
+.marquee-track{display:inline-flex; white-space:nowrap; will-change:transform; animation:marqueeMove linear infinite;}
+.marquee:hover .marquee-track, .marquee:focus-within .marquee-track, .marquee.paused .marquee-track{animation-play-state:paused;}
+@keyframes marqueeMove{from{transform:translateX(0);} to{transform:translateX(-50%);}}
+.bday-chip{margin-right:10px; display:inline-flex; align-items:center; gap:6px; background:#fff; border:1px solid var(--border); border-radius:20px; padding:5px 12px; font-size:13px; color:var(--ink);}
+.bday-chip .d{font-family:ui-monospace,Menlo,monospace; color:var(--accent-dark); font-weight:700;}
+.bday-chip.today{background:var(--accent-soft); border-color:var(--accent); font-weight:700;}
+@media (prefers-reduced-motion: reduce){
+  .marquee{-webkit-mask-image:none; mask-image:none; overflow-x:auto;}
+  .marquee-track{animation:none; padding-bottom:4px;}
+  .marquee-track .dup{display:none;}
+}
+.cnt-table{min-width:0 !important; width:100%; font-size:13px;}
+.cnt-table th, .cnt-table td{padding:7px 6px !important; white-space:nowrap;}
+.cnt-table .grp{text-align:center; border-bottom:1px solid var(--border);}
+.cnt-table .sum{font-weight:700; color:var(--primary-dark);}
+.cnt-table tfoot td{font-weight:700; background:var(--surface-alt,#F6F3EC);}
+.date-nav{display:flex; align-items:center; gap:6px; flex-wrap:wrap;}
+.date-nav input[type=date]{min-width:0; width:150px;}
+
+
+/* ---------- 右上角日期時間 ---------- */
+.topbar-right{display:flex; align-items:center; gap:14px; min-width:0;}
+.top-clock{position:relative; overflow:hidden; display:flex; align-items:center; gap:12px; flex:0 0 auto; white-space:nowrap;
+  padding:8px 16px 11px; border-radius:12px; color:#F4EFE3;
+  background:linear-gradient(135deg,var(--primary-dark) 0%,#2F4A3E 100%);
+  box-shadow:0 4px 14px rgba(35,58,49,.22), inset 0 1px 0 rgba(255,255,255,.08);}
+.tc-date{display:flex; flex-direction:column; align-items:flex-start; line-height:1.15;}
+.tc-md{font-family:var(--font-display); font-size:15px; font-weight:600; letter-spacing:.04em;}
+.tc-wd{font-size:11px; letter-spacing:.2em; color:#C9B48A; margin-top:2px;}
+.tc-sep{width:1px; align-self:stretch; background:linear-gradient(transparent,rgba(224,196,140,.55),transparent);}
+.tc-time{display:flex; align-items:baseline; font-family:var(--font-display); font-variant-numeric:tabular-nums; font-feature-settings:"tnum";}
+#tcHM{font-size:26px; font-weight:600; letter-spacing:.02em;}
+.tc-colon{font-size:22px; margin:0 2px; color:#E0C48C; animation:tcBlink 1s steps(1) infinite;}
+.tc-sec{display:inline-block; min-width:1.45em; font-size:17px; font-weight:600; color:#E7C27D;}
+.tc-sec.tick{animation:tcTick .45s ease-out;}
+.tc-bar{position:absolute; left:0; right:0; bottom:0; height:3px; background:rgba(255,255,255,.1);}
+.tc-bar b{display:block; height:100%; width:0; background:linear-gradient(90deg,#BD8A3F,#E7C27D); transition:width .95s linear;}
+@keyframes tcBlink{0%{opacity:1;} 50%{opacity:.25;}}
+@keyframes tcTick{0%{transform:translateY(-6px); opacity:0;} 100%{transform:none; opacity:1;}}
+@media (prefers-reduced-motion: reduce){ .tc-colon,.tc-sec.tick{animation:none;} .tc-bar b{transition:none;} }
+@media (max-width:900px){
+  .topbar-right{display:contents;}
+  .top-clock{position:absolute; top:10px; right:12px; gap:8px; padding:5px 10px 8px; border-radius:10px;}
+  .tc-date{display:none;}
+  .tc-sep{display:none;}
+  #tcHM{font-size:19px;} .tc-colon{font-size:16px;} .tc-sec{font-size:13px;}
+  #topbar .flex.items-center{padding-right:120px;}
+}
+
 /* ---------- 手機版優化 ---------- */
 @media (max-width:900px){
   #topbar{flex-wrap:wrap; gap:10px; align-items:flex-start; position:sticky; top:0; z-index:40;}
@@ -301,6 +353,9 @@ input[type=file]{border:1px solid var(--border); border-radius:8px; padding:8px 
   .table-wrap table{min-width:560px;}
   .table-wrap th, .table-wrap td{padding:8px 8px; font-size:13px; white-space:nowrap;}
   .table-wrap{-webkit-overflow-scrolling:touch;}
+  .cnt-table th, .cnt-table td{padding:6px 3px !important; font-size:12px !important;}
+  .cnt-table td:first-child{white-space:normal; min-width:64px;}
+  .date-nav input[type=date]{width:140px;}
   /* 視窗：手機改成幾乎全螢幕，底部按鈕固定好按 */
   #modalOverlay{padding:0; align-items:flex-end;}
   .modal-box, .modal-box.wide{max-width:100%; border-radius:16px 16px 0 0; max-height:94vh; display:flex; flex-direction:column;}
@@ -345,7 +400,15 @@ input[type=file]{border:1px solid var(--border); border-radius:8px; padding:8px 
           <div class="sub" id="pageSub">今天也要記得記帳喔</div>
         </div>
       </div>
-      <div class="flex gap8" id="topbarActions"></div>
+      <div class="topbar-right">
+        <div class="flex gap8" id="topbarActions"></div>
+        <div id="topClock" class="top-clock" aria-hidden="true" title="今日日期與現在時間">
+          <div class="tc-date"><span class="tc-md" id="tcMD"></span><span class="tc-wd" id="tcWD"></span></div>
+          <span class="tc-sep"></span>
+          <div class="tc-time"><span id="tcHM"></span><span class="tc-colon">:</span><span class="tc-sec" id="tcS"></span></div>
+          <i class="tc-bar"><b id="tcBar"></b></i>
+        </div>
+      </div>
     </div>
     <div id="content"></div>
   </div>
@@ -1588,6 +1651,35 @@ function renderForgotArea(area, onUnlocked){
     });
   }
 }
+(function startClock(){
+  const WEEK = ["日","一","二","三","四","五","六"];
+  const $ = id => document.getElementById(id);
+  let lastDay = "";
+  function tick(){
+    const d = new Date();
+    if(!$("tcS")) return;
+    const day = d.getFullYear()+"-"+d.getMonth()+"-"+d.getDate();
+    if(day !== lastDay){
+      lastDay = day;
+      $("tcMD").textContent = `${d.getMonth()+1}月${d.getDate()}日`;
+      $("tcWD").textContent = `週${WEEK[d.getDay()]}`;
+    }
+    $("tcHM").textContent = String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");
+    const sec = d.getSeconds();
+    const sEl = $("tcS");
+    sEl.textContent = String(sec).padStart(2,"0");
+    sEl.classList.remove("tick"); void sEl.offsetWidth; sEl.classList.add("tick");
+    const bar = $("tcBar");
+    if(sec === 0){ bar.style.transition = "none"; bar.style.width = "0%"; void bar.offsetWidth; bar.style.transition = ""; }
+    bar.style.width = ((sec+1)/60*100) + "%";
+  }
+  function loop(){
+    tick();
+    setTimeout(loop, 1000 - (Date.now() % 1000) + 5);   // 對齊整秒，避免秒數跳動不均
+  }
+  loop();
+  document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) tick(); });
+})();
 document.getElementById("menuToggle").addEventListener("click", ()=> document.getElementById("sidebar").classList.toggle("open"));
 
 /* =======================================================
@@ -1810,7 +1902,13 @@ function computeTherapistSettlement(therapistId, monthKey){
     deputyBase = studioProfitBeforeDeputyBonus(monthKey);
     deputyBonus = Math.round(Math.max(0, deputyBase) * pct / 100);
   }
-  return {...core, deputyBonus, deputyBase, deputyPct: pct, deputyCount, total: core.total + deputyBonus};
+  const deputySuggested = deputyBonus;
+  const isDeputy = rInfo.role === "deputy";
+  // 可手動調整：月結算頁儲存後的覆寫值優先於系統建議值
+  const ov = getSettlementOverride(monthKey, therapistId);
+  const deputyOverridden = isDeputy && ov && ov.deputyBonus !== undefined && ov.deputyBonus !== null;
+  if(deputyOverridden) deputyBonus = Number(ov.deputyBonus)||0;
+  return {...core, deputyBonus, deputySuggested, deputyOverridden, isDeputy, deputyBase, deputyPct: pct, deputyCount, total: core.total + deputyBonus};
 }
 function calcAge(birthDate, birthYear){
   const today = new Date();
@@ -1870,6 +1968,7 @@ function nextCustomerCode(){
 /* =======================================================
    6. Dashboard
    ======================================================= */
+let dashDate = todayStr();
 function renderDashboard(){
   const el = document.getElementById("panel-dashboard");
   const now = new Date();
@@ -1924,6 +2023,28 @@ function renderDashboard(){
 
   const recent = state.transactions.slice().sort((a,b)=> (b.date+b.id).localeCompare(a.date+a.id)).slice(0,8);
 
+  // 壽星跑馬燈
+  const todayDay = now.getDate();
+  const todayBirthdays = birthdayCustomers.filter(c=> Number(c.birthDate.slice(8,10)) === todayDay);
+  const bdayChip = c => `<span class="bday-chip ${Number(c.birthDate.slice(8,10))===todayDay?'today':''}"><span>🎂</span><span class="d">${Number(c.birthDate.slice(5,7))}/${Number(c.birthDate.slice(8,10))}</span>${escapeHtml(c.name)}</span>`;
+  const bdayChips = birthdayCustomers.map(bdayChip).join("");
+
+  // 調理師調理人次（所選日期當日＋當月累計至該日）
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(dashDate)) dashDate = todayStr();
+  const dashMonthKey = dashDate.slice(0,7);
+  const cntMap = {};
+  const ensureCnt = (id,name,role)=> (cntMap[id] = cntMap[id] || {id, name, role, dg:0, da:0, mg:0, ma:0});
+  state.therapists.filter(t=>t.status==="active").forEach(t=> ensureCnt(t.id, t.name, roleForMonth(t, dashMonthKey).role));
+  monthTransactions(dashMonthKey).filter(t=>t.itemId==="it_tiao" && t.date <= dashDate).forEach(t=>{
+    const th = t.therapistId ? byId(state.therapists, t.therapistId) : null;
+    const r = t.therapistId ? ensureCnt(t.therapistId, th ? th.name : (t.therapistName||"（已刪除）"), th ? roleForMonth(th, dashMonthKey).role : "staff") : ensureCnt("_none","未指定","staff");
+    const q = Number(t.qty)||0, ath = t.customerType === "選手";
+    if(ath) r.ma += q; else r.mg += q;
+    if(t.date === dashDate){ if(ath) r.da += q; else r.dg += q; }
+  });
+  const cntRows = Object.values(cntMap).sort((a,b)=> (b.mg+b.ma)-(a.mg+a.ma) || a.name.localeCompare(b.name));
+  const cntTotal = cntRows.reduce((s,r)=>({dg:s.dg+r.dg, da:s.da+r.da, mg:s.mg+r.mg, ma:s.ma+r.ma}), {dg:0,da:0,mg:0,ma:0});
+
   el.innerHTML = `
     <div class="grid grid-4">
       <div class="card stat-card"><div class="label">本月調理人次</div><div class="value">${fmtNum(treatmentCount)}</div><div class="hint">來自「調理」項目加總</div></div>
@@ -1950,28 +2071,47 @@ function renderDashboard(){
         </div>
       </div>
       <div class="card card-pad">
-        <div class="section-head"><h3>本月熱門項目</h3><span class="desc">依銷售數量排序</span></div>
-        ${topItems.length ? `
-          <div class="table-wrap" style="border:none;">
-            <table style="min-width:0;">
-              <thead><tr><th>項目</th><th class="num">銷售數量</th></tr></thead>
-              <tbody>
-                ${topItems.map((it,i)=>`<tr><td>${i===0?'🏆 ':''}${escapeHtml(it.name)}</td><td class="num mono">${fmtNum(it.qty)}</td></tr>`).join("")}
-              </tbody>
-            </table>
+        <div class="section-head" style="flex-wrap:wrap; gap:8px;">
+          <div><h3>調理師調理人次</h3><span class="desc">當日與當月累計（一般／選手）</span></div>
+          <div class="date-nav">
+            <button class="btn btn-ghost btn-sm" id="dashDatePrev" title="前一天">◀</button>
+            <input type="date" id="dashDateInput" value="${dashDate}">
+            <button class="btn btn-ghost btn-sm" id="dashDateNext" title="後一天">▶</button>
+            <button class="btn btn-ghost btn-sm" id="dashDateToday">今天</button>
           </div>
-        ` : `<div class="faint mt8">本月尚無消費紀錄</div>`}
+        </div>
+        <div class="table-wrap" style="border:none;">
+          <table class="cnt-table">
+            <thead>
+              <tr><th rowspan="2">調理師</th><th class="grp num" colspan="3">${Number(dashDate.slice(5,7))}/${Number(dashDate.slice(8,10))} 當日</th><th class="grp num" colspan="3">${Number(dashDate.slice(5,7))}月累計</th></tr>
+              <tr><th class="num">一般</th><th class="num">選手</th><th class="num">小計</th><th class="num">一般</th><th class="num">選手</th><th class="num">小計</th></tr>
+            </thead>
+            <tbody>
+              ${cntRows.length ? cntRows.map(r=>`<tr>
+                <td>${escapeHtml(r.name)}${r.role==='manager'?' <span class="pill pill-good">店長</span>':r.role==='deputy'?' <span class="pill pill-good">副</span>':''}</td>
+                <td class="num mono">${r.dg||'·'}</td><td class="num mono">${r.da||'·'}</td><td class="num mono sum">${r.dg+r.da||'·'}</td>
+                <td class="num mono">${r.mg}</td><td class="num mono">${r.ma}</td><td class="num mono sum">${r.mg+r.ma}</td>
+              </tr>`).join("") : `<tr class="empty-row"><td colspan="7">尚無調理師資料</td></tr>`}
+            </tbody>
+            ${cntRows.length ? `<tfoot><tr><td>合計</td>
+              <td class="num mono">${cntTotal.dg}</td><td class="num mono">${cntTotal.da}</td><td class="num mono">${cntTotal.dg+cntTotal.da}</td>
+              <td class="num mono">${cntTotal.mg}</td><td class="num mono">${cntTotal.ma}</td><td class="num mono">${cntTotal.mg+cntTotal.ma}</td></tr></tfoot>` : ''}
+          </table>
+        </div>
+        <div class="faint mt8">累計為該月 1 日至所選日期；只計「調理」項目的次數。</div>
       </div>
       <div class="card card-pad">
-        <div class="section-head"><h3>本月壽星</h3><span class="desc">記得送上祝福🎂</span></div>
+        <div class="section-head" style="flex-wrap:wrap; gap:8px;">
+          <div><h3>本月壽星</h3><span class="desc">${birthdayCustomers.length ? `共 ${birthdayCustomers.length} 位，記得送上祝福🎂` : '記得送上祝福🎂'}</span></div>
+          ${birthdayCustomers.length ? `<button class="btn btn-ghost btn-sm" id="bdayViewAllBtn">查看全部</button>` : ''}
+        </div>
         ${birthdayCustomers.length ? `
-          <div class="table-wrap" style="border:none;">
-            <table style="min-width:0;">
-              <thead><tr><th>客戶</th><th>生日</th></tr></thead>
-              <tbody>
-                ${birthdayCustomers.map(c=>`<tr><td>${escapeHtml(c.code?c.code+' ':'')}${escapeHtml(c.name)}</td><td class="mono">${Number(c.birthDate.slice(5,7))}/${Number(c.birthDate.slice(8,10))}</td></tr>`).join("")}
-              </tbody>
-            </table>
+          ${todayBirthdays.length ? `<div class="info-box mb8">🎉 今天生日：<b>${todayBirthdays.map(c=>escapeHtml(c.name)).join('、')}</b></div>` : ''}
+          <div class="marquee" id="bdayMarquee" title="滑鼠移上去會暫停；點「查看全部」看完整名單">
+            <div class="marquee-track" style="animation-duration:${Math.max(24, birthdayCustomers.length*3)}s;">
+              ${bdayChips}
+              <span class="dup" style="display:contents;" aria-hidden="true">${bdayChips}</span>
+            </div>
           </div>
         ` : `<div class="faint mt8">本月沒有記錄到客戶生日（可於客戶管理補上完整生日）</div>`}
       </div>
@@ -2000,6 +2140,49 @@ function renderDashboard(){
       </div>
     </div>
   `;
+  const shiftDash = (n)=>{ const d = new Date(dashDate+"T00:00:00"); d.setDate(d.getDate()+n); dashDate = localDateStr(d); renderDashboard(); };
+  document.getElementById("dashDatePrev").addEventListener("click", ()=> shiftDash(-1));
+  document.getElementById("dashDateNext").addEventListener("click", ()=> shiftDash(1));
+  document.getElementById("dashDateToday").addEventListener("click", ()=>{ dashDate = todayStr(); renderDashboard(); });
+  document.getElementById("dashDateInput").addEventListener("change", (e)=>{ if(e.target.value){ dashDate = e.target.value; renderDashboard(); } });
+  const bvBtn = document.getElementById("bdayViewAllBtn");
+  if(bvBtn) bvBtn.addEventListener("click", ()=> openBirthdayModal(birthdayCustomers));
+  const mq = document.getElementById("bdayMarquee");
+  if(mq){ mq.addEventListener("touchstart", ()=> mq.classList.add("paused"), {passive:true}); mq.addEventListener("touchend", ()=> setTimeout(()=>mq.classList.remove("paused"), 3000), {passive:true}); }
+}
+function openBirthdayModal(list){
+  const day = new Date().getDate();
+  openModal({
+    title: `本月壽星（共 ${list.length} 位）`,
+    wide:true,
+    bodyHTML: `
+      <div class="field"><input type="text" id="bdaySearch" placeholder="搜尋姓名／編號／電話…"></div>
+      <div class="table-wrap" style="max-height:60vh; overflow:auto;">
+        <table style="min-width:0;">
+          <thead><tr><th>生日</th><th>編號</th><th>姓名</th><th>電話</th><th class="num">今年滿</th></tr></thead>
+          <tbody id="bdayModalBody"></tbody>
+        </table>
+      </div>`,
+    footHTML: `<button class="btn btn-primary" data-close>關閉</button>`,
+    onOpen(){
+      document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click", closeModal));
+      const body = document.getElementById("bdayModalBody");
+      const draw = ()=>{
+        const kw = document.getElementById("bdaySearch").value.trim().toLowerCase();
+        const rows = list.filter(c=> !kw || [c.name,c.code,c.phone].join(" ").toLowerCase().includes(kw));
+        body.innerHTML = rows.length ? rows.map(c=>{
+          const d = Number(c.birthDate.slice(8,10));
+          const age = new Date().getFullYear() - Number(c.birthDate.slice(0,4));
+          return `<tr style="${d===day?'background:var(--accent-soft); font-weight:700;':''}">
+            <td class="mono">${Number(c.birthDate.slice(5,7))}/${d}${d===day?' 🎉':''}</td>
+            <td class="mono">${escapeHtml(c.code||'—')}</td><td>${escapeHtml(c.name)}</td>
+            <td class="mono">${escapeHtml(c.phone||'—')}</td><td class="num mono">${age} 歲</td></tr>`;
+        }).join("") : `<tr class="empty-row"><td colspan="5">沒有符合的客戶</td></tr>`;
+      };
+      document.getElementById("bdaySearch").addEventListener("input", draw);
+      draw();
+    }
+  });
 }
 
 /* =======================================================
@@ -3076,7 +3259,7 @@ function renderTierTable(wrapId, tiers, unitLabel, showPerPerson){
           </tr>`).join("")}
       </tbody>
     </table></div>
-    ${showPerPerson?'<div class="faint mt8">「每多1人遞增」勾選後，該區間的「額外固定獎金」會變成：獎金金額 × (人次－最少人次＋1)，例如 91 次以上、獎金填 1000、勾選遞增，則 91 次時多 1000、92 次時多 2000，以此類推；不勾選則整個區間固定只加一次獎金金額。</div>':''}
+    ${showPerPerson?'<div class="faint mt8">「每多1人遞增」勾選後，該區間的「額外固定獎金」會變成：獎金金額 × (人次－最少人次＋1)，例如 91 次以上、獎金填 100、勾選遞增，則 91 次時多 100、92 次時多 200，以此類推；不勾選則整個區間固定只加一次獎金金額。</div>':''}
   `;
   document.querySelectorAll(`#${wrapId} [data-remove-tier]`).forEach(btn=>{
     btn.addEventListener("click", ()=>{
@@ -3632,7 +3815,7 @@ function renderSettlementTable(){
               <td class="num col-divide"><input type="number" min="0" data-settle="pillow" value="${s.pillowPay}" style="max-width:90px; margin-left:auto;"></td>
               <td class="num mono" title="${s.otherDetail.map(d=>d.itemName+'×'+d.qty+'='+Math.round(d.amount)).join(', ')||'—'}">${fmtMoney(s.otherTotal)}</td>
               <td class="num col-divide"><input type="number" min="0" data-settle="teamBonus" value="${s.teamBonus}" style="max-width:90px; margin-left:auto;"></td>
-              <td class="num mono" data-deputy-bonus="${s.deputyBonus}" title="${s.deputyPct?('調理人數（不含店長）'+s.deputyCount+' 人 → '+s.deputyPct+'%；獲利基礎 '+fmtMoney(s.deputyBase)):''}">${s.deputyPct?fmtMoney(s.deputyBonus):'—'}</td>
+              <td class="num" ${s.isDeputy?`data-deputy-suggested="${s.deputySuggested}" title="${'調理人數（不含店長）'+s.deputyCount+' 人 → '+s.deputyPct+'%；獲利基礎 '+fmtMoney(s.deputyBase)}"`:''}>${s.isDeputy?`<input type="number" min="0" data-settle="deputyBonus" value="${s.deputyBonus}" style="max-width:90px; margin-left:auto;"><div class="faint" style="font-size:11px; margin-top:2px;">建議 ${fmtMoney(s.deputySuggested)}${s.deputyOverridden?'（已手動調整）':''}</div>`:'<span class="faint">—</span>'}</td>
               <td class="num mono" style="font-weight:700; color:var(--primary-dark);" data-out="total">${fmtMoney(s.total)}</td>
               <td><button class="btn btn-ghost btn-sm" data-reset-settle="${th.id}">還原建議值</button></td>
             </tr>`;
@@ -3640,7 +3823,7 @@ function renderSettlementTable(){
         </tbody>
       </table>
     </div>
-    <div class="faint mt12">提示：「店長」調理金額 100% 實收（不受分潤規則限制）；「副店長獲利獎金」＝（當月收入 − 薪資（不含此獎金）− 商品成本 − 營運成本）× 級距％（調理人數不含店長，≤門檻用低％、超過用高％，可到「分潤規則」調整），虧損時為 0，儲存後會連同其他人的調整一併重算。滑鼠移到「其他項目分潤」欄位可看到明細；調整「分潤比例」「枕頭分潤」「團隊獎金」後，需按上方「儲存本月所有調整」才會保留。</div>
+    <div class="faint mt12">提示：「店長」調理金額 100% 實收（不受分潤規則限制）；「副店長獲利獎金」可手動調整（欄位下方顯示系統建議值，輸入後按「儲存本月所有調整」才會保留；改回建議值則恢復自動計算）。建議值＝（當月收入 − 薪資（不含此獎金）− 商品成本 − 營運成本）× 級距％（調理人數不含店長，≤門檻用低％、超過用高％，可到「分潤規則」調整），虧損時為 0，儲存後會連同其他人的調整一併重算（手動調整過的獎金不受影響）。滑鼠移到「其他項目分潤」欄位可看到明細；調整「分潤比例」「枕頭分潤」「團隊獎金」後，需按上方「儲存本月所有調整」才會保留。</div>
   `;
 
   document.querySelectorAll('[data-settle-row]').forEach(row=>{
@@ -3663,8 +3846,8 @@ function recomputeSettleRow(thId, monthKey){
   const pillow = Number(row.querySelector('[data-settle="pillow"]').value)||0;
   const teamBonus = Number(row.querySelector('[data-settle="teamBonus"]').value)||0;
   const treatmentPay = stats.treatmentRevenue*rate + stats.suggestedTierBonus;
-  const dEl = row.querySelector('[data-deputy-bonus]');
-  const total = treatmentPay + pillow + stats.otherTotal + teamBonus + (dEl ? Number(dEl.dataset.deputyBonus)||0 : 0);
+  const dEl = row.querySelector('[data-settle="deputyBonus"]');
+  const total = treatmentPay + pillow + stats.otherTotal + teamBonus + (dEl ? Number(dEl.value)||0 : 0);
   row.querySelector('[data-out="treatmentPay"]').textContent = fmtMoney(treatmentPay);
   row.querySelector('[data-out="total"]').textContent = fmtMoney(total);
 }
@@ -3673,11 +3856,19 @@ function saveSettlementAll(){
   if(!state.settlements[monthKey]) state.settlements[monthKey] = {};
   document.querySelectorAll('[data-settle-row]').forEach(row=>{
     const thId = row.dataset.settleRow;
-    state.settlements[monthKey][thId] = {
+    const rec = {
       rate: Number(row.querySelector('[data-settle="rate"]').value)||0,
       pillow: Number(row.querySelector('[data-settle="pillow"]').value)||0,
       teamBonus: Number(row.querySelector('[data-settle="teamBonus"]').value)||0,
     };
+    // 副店長獲利獎金：只有和系統建議值不同時才記錄為手動調整，否則之後仍會隨資料自動重算
+    const dEl = row.querySelector('[data-settle="deputyBonus"]');
+    if(dEl){
+      const sug = Number(row.querySelector('[data-deputy-suggested]').dataset.deputySuggested)||0;
+      const val = Number(dEl.value)||0;
+      if(Math.abs(val - sug) > 0.5) rec.deputyBonus = val;
+    }
+    state.settlements[monthKey][thId] = rec;
   });
   saveState();
   toast("已儲存本月薪資結算資料","success");
