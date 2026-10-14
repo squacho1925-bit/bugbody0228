@@ -272,18 +272,27 @@ input[type=file]{border:1px solid var(--border); border-radius:8px; padding:8px 
 }
 
 /* ---------- 儀表板：壽星跑馬燈、調理人次 ---------- */
-.marquee{overflow:hidden; position:relative; border-radius:10px; background:var(--surface-alt,#F6F3EC); padding:10px 0;
-  -webkit-mask-image:linear-gradient(90deg,transparent,#000 4%,#000 96%,transparent); mask-image:linear-gradient(90deg,transparent,#000 4%,#000 96%,transparent);}
-.marquee-track{display:inline-flex; white-space:nowrap; will-change:transform; animation:marqueeMove linear infinite;}
+.marquee{overflow:hidden; position:relative; border-radius:12px; padding:13px 0;
+  background:linear-gradient(135deg,var(--primary-dark) 0%,#2F4A3E 100%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.07), 0 3px 10px rgba(35,58,49,.15);}
+.marquee::before,.marquee::after{content:""; position:absolute; top:0; bottom:0; width:48px; z-index:2; pointer-events:none;}
+.marquee::before{left:0; background:linear-gradient(90deg,#26403F,transparent);}
+.marquee::after{right:0; background:linear-gradient(270deg,#2F4A3E,transparent);}
+.marquee-track{display:inline-flex; align-items:center; white-space:nowrap; will-change:transform; animation:marqueeMove linear infinite;}
 .marquee:hover .marquee-track, .marquee:focus-within .marquee-track, .marquee.paused .marquee-track{animation-play-state:paused;}
 @keyframes marqueeMove{from{transform:translateX(0);} to{transform:translateX(-50%);}}
-.bday-chip{margin-right:10px; display:inline-flex; align-items:center; gap:6px; background:#fff; border:1px solid var(--border); border-radius:20px; padding:5px 12px; font-size:13px; color:var(--ink);}
-.bday-chip .d{font-family:ui-monospace,Menlo,monospace; color:var(--accent-dark); font-weight:700;}
-.bday-chip.today{background:var(--accent-soft); border-color:var(--accent); font-weight:700;}
+.bd-item{display:inline-flex; align-items:baseline; gap:8px; padding:3px 4px; color:#F4EFE3;}
+.bd-date{font-family:var(--font-display); font-size:13px; font-weight:700; color:#E7C27D; letter-spacing:.04em;}
+.bd-name{font-family:var(--font-display); font-size:16px; font-weight:600; letter-spacing:.04em;}
+.bd-age{font-size:11px; color:#B9C7BE; letter-spacing:.05em;}
+.bd-sep{margin:0 20px; color:#BD8A3F; font-size:11px; opacity:.85;}
+.bd-item.today{background:linear-gradient(135deg,#E7C27D,#BD8A3F); color:#233A31; border-radius:20px; padding:3px 14px; box-shadow:0 2px 8px rgba(0,0,0,.25);}
+.bd-item.today .bd-date{color:#4A3515;} .bd-item.today .bd-age{color:#5A4520;}
 @media (prefers-reduced-motion: reduce){
   .marquee{-webkit-mask-image:none; mask-image:none; overflow-x:auto;}
   .marquee-track{animation:none; padding-bottom:4px;}
   .marquee-track .dup{display:none;}
+  .marquee::before,.marquee::after{display:none;}
 }
 .cnt-table{min-width:0 !important; width:100%; font-size:13px;}
 .cnt-table th, .cnt-table td{padding:7px 6px !important; white-space:nowrap;}
@@ -292,6 +301,36 @@ input[type=file]{border:1px solid var(--border); border-radius:8px; padding:8px 
 .cnt-table tfoot td{font-weight:700; background:var(--surface-alt,#F6F3EC);}
 .date-nav{display:flex; align-items:center; gap:6px; flex-wrap:wrap;}
 .date-nav input[type=date]{min-width:0; width:150px;}
+
+
+/* ---------- 右上角日期時間 ---------- */
+.topbar-right{display:flex; align-items:center; gap:14px; min-width:0;}
+.top-clock{position:relative; overflow:hidden; display:flex; align-items:center; gap:12px; flex:0 0 auto; white-space:nowrap;
+  padding:8px 16px 11px; border-radius:12px; color:#F4EFE3;
+  background:linear-gradient(135deg,var(--primary-dark) 0%,#2F4A3E 100%);
+  box-shadow:0 4px 14px rgba(35,58,49,.22), inset 0 1px 0 rgba(255,255,255,.08);}
+.tc-date{display:flex; flex-direction:column; align-items:flex-start; line-height:1.15;}
+.tc-md{font-family:var(--font-display); font-size:15px; font-weight:600; letter-spacing:.04em;}
+.tc-wd{font-size:11px; letter-spacing:.2em; color:#C9B48A; margin-top:2px;}
+.tc-sep{width:1px; align-self:stretch; background:linear-gradient(transparent,rgba(224,196,140,.55),transparent);}
+.tc-time{display:flex; align-items:baseline; font-family:var(--font-display); font-variant-numeric:tabular-nums; font-feature-settings:"tnum";}
+#tcHM{font-size:26px; font-weight:600; letter-spacing:.02em;}
+.tc-colon{font-size:22px; margin:0 2px; color:#E0C48C; animation:tcBlink 1s steps(1) infinite;}
+.tc-sec{display:inline-block; min-width:1.45em; font-size:17px; font-weight:600; color:#E7C27D;}
+.tc-sec.tick{animation:tcTick .45s ease-out;}
+.tc-bar{position:absolute; left:0; right:0; bottom:0; height:3px; background:rgba(255,255,255,.1);}
+.tc-bar b{display:block; height:100%; width:0; background:linear-gradient(90deg,#BD8A3F,#E7C27D); transition:width .95s linear;}
+@keyframes tcBlink{0%{opacity:1;} 50%{opacity:.25;}}
+@keyframes tcTick{0%{transform:translateY(-6px); opacity:0;} 100%{transform:none; opacity:1;}}
+@media (prefers-reduced-motion: reduce){ .tc-colon,.tc-sec.tick{animation:none;} .tc-bar b{transition:none;} }
+@media (max-width:900px){
+  .topbar-right{display:contents;}
+  .top-clock{position:absolute; top:10px; right:12px; gap:8px; padding:5px 10px 8px; border-radius:10px;}
+  .tc-date{display:none;}
+  .tc-sep{display:none;}
+  #tcHM{font-size:19px;} .tc-colon{font-size:16px;} .tc-sec{font-size:13px;}
+  #topbar .flex.items-center{padding-right:120px;}
+}
 
 /* ---------- 手機版優化 ---------- */
 @media (max-width:900px){
@@ -370,7 +409,15 @@ input[type=file]{border:1px solid var(--border); border-radius:8px; padding:8px 
           <div class="sub" id="pageSub">今天也要記得記帳喔</div>
         </div>
       </div>
-      <div class="flex gap8" id="topbarActions"></div>
+      <div class="topbar-right">
+        <div class="flex gap8" id="topbarActions"></div>
+        <div id="topClock" class="top-clock" aria-hidden="true" title="今日日期與現在時間">
+          <div class="tc-date"><span class="tc-md" id="tcMD"></span><span class="tc-wd" id="tcWD"></span></div>
+          <span class="tc-sep"></span>
+          <div class="tc-time"><span id="tcHM"></span><span class="tc-colon">:</span><span class="tc-sec" id="tcS"></span></div>
+          <i class="tc-bar"><b id="tcBar"></b></i>
+        </div>
+      </div>
     </div>
     <div id="content"></div>
   </div>
@@ -1613,6 +1660,35 @@ function renderForgotArea(area, onUnlocked){
     });
   }
 }
+(function startClock(){
+  const WEEK = ["日","一","二","三","四","五","六"];
+  const $ = id => document.getElementById(id);
+  let lastDay = "";
+  function tick(){
+    const d = new Date();
+    if(!$("tcS")) return;
+    const day = d.getFullYear()+"-"+d.getMonth()+"-"+d.getDate();
+    if(day !== lastDay){
+      lastDay = day;
+      $("tcMD").textContent = `${d.getMonth()+1}月${d.getDate()}日`;
+      $("tcWD").textContent = `週${WEEK[d.getDay()]}`;
+    }
+    $("tcHM").textContent = String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");
+    const sec = d.getSeconds();
+    const sEl = $("tcS");
+    sEl.textContent = String(sec).padStart(2,"0");
+    sEl.classList.remove("tick"); void sEl.offsetWidth; sEl.classList.add("tick");
+    const bar = $("tcBar");
+    if(sec === 0){ bar.style.transition = "none"; bar.style.width = "0%"; void bar.offsetWidth; bar.style.transition = ""; }
+    bar.style.width = ((sec+1)/60*100) + "%";
+  }
+  function loop(){
+    tick();
+    setTimeout(loop, 1000 - (Date.now() % 1000) + 5);   // 對齊整秒，避免秒數跳動不均
+  }
+  loop();
+  document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) tick(); });
+})();
 document.getElementById("menuToggle").addEventListener("click", ()=> document.getElementById("sidebar").classList.toggle("open"));
 
 /* =======================================================
@@ -1920,7 +1996,7 @@ function renderDashboard(){
     months.push({key, label: `${d.getMonth()+1}月`, cnt});
   }
   const maxCnt = Math.max(1, ...months.map(m=>m.cnt));
-  const barW = 60, gap = 22, chartH = 140;
+  const barW = 60, gap = 22, chartH = 200;
   const bars = months.map((m,i)=>{
     const h = Math.round((m.cnt/maxCnt) * (chartH-24));
     const x = i*(barW+gap)+10;
@@ -1959,7 +2035,11 @@ function renderDashboard(){
   // 壽星跑馬燈
   const todayDay = now.getDate();
   const todayBirthdays = birthdayCustomers.filter(c=> Number(c.birthDate.slice(8,10)) === todayDay);
-  const bdayChip = c => `<span class="bday-chip ${Number(c.birthDate.slice(8,10))===todayDay?'today':''}"><span>🎂</span><span class="d">${Number(c.birthDate.slice(5,7))}/${Number(c.birthDate.slice(8,10))}</span>${escapeHtml(c.name)}</span>`;
+  const bdayChip = c => {
+    const dd = Number(c.birthDate.slice(8,10)), isToday = dd === todayDay;
+    const age = now.getFullYear() - Number(c.birthDate.slice(0,4));
+    return `<span class="bd-item ${isToday?'today':''}">${isToday?'<span>🎉</span>':''}<span class="bd-date">${Number(c.birthDate.slice(5,7))}/${dd}</span><span class="bd-name">${escapeHtml(c.name)}</span>${age>0&&age<120?`<span class="bd-age">滿${age}</span>`:''}</span><span class="bd-sep">✦</span>`;
+  };
   const bdayChips = birthdayCustomers.map(bdayChip).join("");
 
   // 調理師調理人次（所選日期當日＋當月累計至該日）
@@ -1985,6 +2065,22 @@ function renderDashboard(){
       <div class="card stat-card"><div class="label">本月消費筆數</div><div class="value">${fmtNum(txThisMonth.length)}</div><div class="hint">所有類別消費紀錄總數</div></div>
       <div class="card stat-card"><span class="tag tag-good">團隊</span><div class="label">本月人次最高</div><div class="value" style="font-size:20px;">${topTherapist? escapeHtml(topTherapist.name) : '—'}</div><div class="hint">${topTherapist? `${fmtNum(topTherapist.total)} 人次｜${topTherapist.level} 級` : '尚無資料'}</div></div>
     </div>
+
+      <div class="card card-pad mt16">
+        <div class="section-head" style="flex-wrap:wrap; gap:8px;">
+          <div><h3>本月壽星</h3><span class="desc">${birthdayCustomers.length ? `共 ${birthdayCustomers.length} 位，記得送上祝福🎂` : '記得送上祝福🎂'}</span></div>
+          ${birthdayCustomers.length ? `<button class="btn btn-ghost btn-sm" id="bdayViewAllBtn">查看全部</button>` : ''}
+        </div>
+        ${birthdayCustomers.length ? `
+          ${todayBirthdays.length ? `<div class="info-box mb8">🎉 今天生日：<b>${todayBirthdays.map(c=>escapeHtml(c.name)).join('、')}</b></div>` : ''}
+          <div class="marquee" id="bdayMarquee" title="滑鼠移上去會暫停；點「查看全部」看完整名單">
+            <div class="marquee-track" style="animation-duration:${Math.max(24, birthdayCustomers.length*3)}s;">
+              ${bdayChips}
+              <span class="dup" style="display:contents;" aria-hidden="true">${bdayChips}</span>
+            </div>
+          </div>
+        ` : `<div class="faint mt8">本月沒有記錄到客戶生日（可於客戶管理補上完整生日）</div>`}
+      </div>
 
     <div class="grid grid-2 mt16" style="align-items:stretch;">
       <div class="card card-pad" style="display:flex; flex-direction:column;">
@@ -2032,21 +2128,6 @@ function renderDashboard(){
           </table>
         </div>
         <div class="faint mt8">累計為該月 1 日至所選日期；只計「調理」項目的次數。</div>
-      </div>
-      <div class="card card-pad">
-        <div class="section-head" style="flex-wrap:wrap; gap:8px;">
-          <div><h3>本月壽星</h3><span class="desc">${birthdayCustomers.length ? `共 ${birthdayCustomers.length} 位，記得送上祝福🎂` : '記得送上祝福🎂'}</span></div>
-          ${birthdayCustomers.length ? `<button class="btn btn-ghost btn-sm" id="bdayViewAllBtn">查看全部</button>` : ''}
-        </div>
-        ${birthdayCustomers.length ? `
-          ${todayBirthdays.length ? `<div class="info-box mb8">🎉 今天生日：<b>${todayBirthdays.map(c=>escapeHtml(c.name)).join('、')}</b></div>` : ''}
-          <div class="marquee" id="bdayMarquee" title="滑鼠移上去會暫停；點「查看全部」看完整名單">
-            <div class="marquee-track" style="animation-duration:${Math.max(24, birthdayCustomers.length*3)}s;">
-              ${bdayChips}
-              <span class="dup" style="display:contents;" aria-hidden="true">${bdayChips}</span>
-            </div>
-          </div>
-        ` : `<div class="faint mt8">本月沒有記錄到客戶生日（可於客戶管理補上完整生日）</div>`}
       </div>
       </div>
     </div>
